@@ -1,0 +1,11 @@
+[package]
+name = "dsl"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+la-arena.workspace= true
+
+
+[dev-dependencies]
+parameterized_test = "0.2.1"
