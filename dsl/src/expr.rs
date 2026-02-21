@@ -148,6 +148,33 @@ mod tests {
         assert_eq!(inserted_expr, Expr::Const(value));
     }
 
+    #[test]
+    fn test_hash_consing_for_values() {
+        let ctx_handle = test_ctx_handle();
+        let constant_value = 9;
+        let constant = ctx_handle.constant(constant_value);
+
+        let expected_length_for_constant = ctx_handle.0.borrow().arena.len();
+        assert_eq!(constant.idx.into_raw().into_u32(), 0);
+
+        let same_constant = ctx_handle.constant(constant_value);
+        assert_eq!(same_constant.idx.into_raw().into_u32(), 0);
+        assert_eq!(
+            ctx_handle.0.borrow().arena.len(),
+            expected_length_for_constant
+        );
+
+        let input_value = 8;
+        let input = ctx_handle.input(input_value);
+
+        let expected_length_for_input = ctx_handle.0.borrow().arena.len();
+        assert_eq!(input.idx.into_raw().into_u32(), 1);
+
+        let same_input = ctx_handle.input(input_value);
+        assert_eq!(same_input.idx.into_raw().into_u32(), 1);
+        assert_eq!(ctx_handle.0.borrow().arena.len(), expected_length_for_input);
+    }
+
     impl Expr {
         fn add(expr_idx_1: ExprIdx, expr_idx_2: ExprIdx) -> Self {
             Self::Add(expr_idx_1, expr_idx_2)
@@ -257,6 +284,37 @@ mod tests {
     }
 
     create_op_test! {
+        add: Op::Add,
+        sub: Op::Sub,
+        mul: Op::Mul,
+    }
+
+    create! {
+        create_op_hash_consing_test,
+        (op), {
+
+            let ctx_handle = test_ctx_handle();
+            let value = 9;
+            let constant_1 = ctx_handle.constant(value);
+            let constant_2 = ctx_handle.constant(value);
+
+            // Agnostic to the operands mode (move, borrowed), if operation is the same and the
+            // values of operands are the same, it will be re-used.
+            let expected_arena_length = ctx_handle.0.borrow().arena.len() + 1;
+            for mode in [Mode::Move, Mode::Borrow, Mode::BorrowMut] {
+                let constant_1 = ctx_handle.constant(value);
+                let constant_2 = ctx_handle.constant(value);
+                let (expr_handle, expectation) = perform_op_with_expectation_mode(op.clone(), constant_1.clone(), constant_2.clone(), mode.clone());
+                let (same_expr_handle, expectation) = perform_op_with_expectation_mode(op.clone(), constant_1, constant_2, mode);
+
+                assert_eq!(expr_handle.idx, same_expr_handle.idx);
+                let current_arena_length = ctx_handle.0.borrow().arena.len();
+                assert_eq!(expected_arena_length, current_arena_length);
+            }
+        }
+    }
+
+    create_op_hash_consing_test! {
         add: Op::Add,
         sub: Op::Sub,
         mul: Op::Mul,
