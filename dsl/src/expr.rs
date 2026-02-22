@@ -1,5 +1,3 @@
-use std::ops::{Add, Mul, Sub};
-
 use crate::ctx::ContextHandle;
 use la_arena::Idx;
 
@@ -28,7 +26,7 @@ impl ExprHandle {
     fn get_handle(&self) -> ContextHandle {
         self.ctx_handle.clone()
     }
-    fn extend_new_handle(&self, expr: Expr) -> Self {
+    pub(crate) fn extend_new_handle(&self, expr: Expr) -> Self {
         let expr_idx = self.push_in_context_of(expr);
         Self {
             idx: expr_idx,
@@ -37,84 +35,10 @@ impl ExprHandle {
     }
 }
 
-impl Add for &ExprHandle {
-    type Output = ExprHandle;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        let expr = Expr::Add(self.idx, rhs.idx);
-        self.extend_new_handle(expr)
-    }
-}
-
-impl Add for ExprHandle {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        (&self).add(&rhs)
-    }
-}
-
-impl Add for &mut ExprHandle {
-    type Output = ExprHandle;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        (&*self).add(&*rhs)
-    }
-}
-
-impl Sub for &ExprHandle {
-    type Output = ExprHandle;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        let expr = Expr::Sub(self.idx, rhs.idx);
-        self.extend_new_handle(expr)
-    }
-}
-
-impl Sub for ExprHandle {
-    type Output = Self;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        (&self).sub(&rhs)
-    }
-}
-
-impl Sub for &mut ExprHandle {
-    type Output = ExprHandle;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        (&*self).sub(&*rhs)
-    }
-}
-
-impl Mul for &ExprHandle {
-    type Output = ExprHandle;
-
-    fn mul(self, rhs: Self) -> Self::Output {
-        let expr = Expr::Mul(self.idx, rhs.idx);
-        self.extend_new_handle(expr)
-    }
-}
-
-impl Mul for ExprHandle {
-    type Output = Self;
-
-    fn mul(self, rhs: Self) -> Self::Output {
-        (&self).mul(&rhs)
-    }
-}
-
-impl Mul for &mut ExprHandle {
-    type Output = ExprHandle;
-
-    fn mul(self, rhs: Self) -> Self::Output {
-        (&*self).mul(&*rhs)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use parameterized_test::create;
+    use std::ops::{Add, Mul, Sub};
 
     use crate::new_context;
 
