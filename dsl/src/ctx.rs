@@ -15,8 +15,8 @@ impl ContextHandle {
             ctx_handle: self.clone(),
         }
     }
-    pub fn input(&self, value: usize) -> ExprHandle {
-        let kind = Expr::Input(value);
+    pub fn var(&self, value: usize) -> ExprHandle {
+        let kind = Expr::Var(value);
         self.expr_handle_for(kind)
     }
     pub fn constant(&self, value: usize) -> ExprHandle {
@@ -35,7 +35,7 @@ enum ExprHash {
 impl From<&Expr> for ExprHash {
     fn from(expr: &Expr) -> Self {
         match expr {
-            Expr::Input(v) | Expr::Const(v) => Self::Value(*v),
+            Expr::Var(v) | Expr::Const(v) => Self::Value(*v),
             Expr::Add(idx, idx1) | Expr::Sub(idx, idx1) | Expr::Mul(idx, idx1) => {
                 let (mut idx_1, mut idx_2) = (*idx, *idx1);
                 if idx_1 > idx_2 {

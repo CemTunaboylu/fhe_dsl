@@ -5,7 +5,7 @@ pub(crate) type ExprIdx = Idx<Expr>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Expr {
-    Input(usize),
+    Var(usize),
     Const(usize),
     Add(ExprIdx, ExprIdx),
     Sub(ExprIdx, ExprIdx),
@@ -49,15 +49,15 @@ mod tests {
     }
 
     #[test]
-    fn test_input() {
+    fn test_var() {
         let ctx_handle = test_ctx_handle();
         let value = 9;
-        let input = ctx_handle.input(value);
+        let var = ctx_handle.var(value);
 
-        assert_eq!(input.idx.into_raw().into_u32(), 0);
+        assert_eq!(var.idx.into_raw().into_u32(), 0);
 
-        let inserted_expr = ctx_handle.0.borrow().arena[input.idx];
-        assert_eq!(inserted_expr, Expr::Input(value));
+        let inserted_expr = ctx_handle.0.borrow().arena[var.idx];
+        assert_eq!(inserted_expr, Expr::Var(value));
     }
 
     #[test]
@@ -88,15 +88,15 @@ mod tests {
             expected_length_for_constant
         );
 
-        let input_value = 8;
-        let input = ctx_handle.input(input_value);
+        let var_value = 8;
+        let variable = ctx_handle.var(var_value);
 
-        let expected_length_for_input = ctx_handle.0.borrow().arena.len();
-        assert_eq!(input.idx.into_raw().into_u32(), 1);
+        let expected_length_for_var = ctx_handle.0.borrow().arena.len();
+        assert_eq!(variable.idx.into_raw().into_u32(), 1);
 
-        let same_input = ctx_handle.input(input_value);
-        assert_eq!(same_input.idx.into_raw().into_u32(), 1);
-        assert_eq!(ctx_handle.0.borrow().arena.len(), expected_length_for_input);
+        let same_var = ctx_handle.var(var_value);
+        assert_eq!(same_var.idx.into_raw().into_u32(), 1);
+        assert_eq!(ctx_handle.0.borrow().arena.len(), expected_length_for_var);
     }
 
     impl Expr {
