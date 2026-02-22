@@ -1,12 +1,12 @@
-use crate::ctx::ContextHandle;
+use crate::{SupportedType, ctx::ContextHandle};
 use la_arena::Idx;
 
 pub(crate) type ExprIdx = Idx<Expr>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Expr {
-    Var(usize),
-    Const(usize),
+    Var(SupportedType),
+    Const(SupportedType),
     Add(ExprIdx, ExprIdx),
     Sub(ExprIdx, ExprIdx),
     Mul(ExprIdx, ExprIdx),
@@ -40,7 +40,7 @@ mod tests {
     use parameterized_test::create;
     use std::ops::{Add, Mul, Sub};
 
-    use crate::new_context;
+    use crate::{new_context, op::BinOp};
 
     use super::*;
 
@@ -112,13 +112,6 @@ mod tests {
     }
 
     #[derive(Clone, Debug)]
-    enum Op {
-        Add,
-        Sub,
-        Mul,
-    }
-
-    #[derive(Clone, Debug)]
     enum Mode {
         Move,
         Borrow,
@@ -136,7 +129,7 @@ mod tests {
     }
 
     fn perform_op_with_expectation<O>(
-        op: Op,
+        op: BinOp,
         operand_1: O,
         operand_2: O,
     ) -> (ExprHandle, fn(ExprIdx, ExprIdx) -> Expr)
@@ -144,15 +137,15 @@ mod tests {
         O: Add<Output = ExprHandle> + Sub<Output = ExprHandle> + Mul<Output = ExprHandle>,
     {
         match op {
-            Op::Add => {
+            BinOp::Add => {
                 let result = add(operand_1, operand_2);
                 (result, Expr::add)
             }
-            Op::Sub => {
+            BinOp::Sub => {
                 let result = sub(operand_1, operand_2);
                 (result, Expr::sub)
             }
-            Op::Mul => {
+            BinOp::Mul => {
                 let result = mul(operand_1, operand_2);
                 (result, Expr::mul)
             }
@@ -160,7 +153,7 @@ mod tests {
     }
 
     fn perform_op_with_expectation_mode(
-        op: Op,
+        op: BinOp,
         mut expr_handle_1: ExprHandle,
         mut expr_handle_2: ExprHandle,
         mode: Mode,
@@ -208,9 +201,9 @@ mod tests {
     }
 
     create_op_test! {
-        add: Op::Add,
-        sub: Op::Sub,
-        mul: Op::Mul,
+        add: BinOp::Add,
+        sub: BinOp::Sub,
+        mul: BinOp::Mul,
     }
 
     create! {
@@ -239,8 +232,8 @@ mod tests {
     }
 
     create_op_hash_consing_test! {
-        add: Op::Add,
-        sub: Op::Sub,
-        mul: Op::Mul,
+        add: BinOp::Add,
+        sub: BinOp::Sub,
+        mul: BinOp::Mul,
     }
 }

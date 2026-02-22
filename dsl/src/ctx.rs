@@ -1,4 +1,8 @@
-use crate::expr::{Expr, ExprHandle, ExprIdx};
+use crate::{
+    SupportedType,
+    expr::{Expr, ExprHandle, ExprIdx},
+    hash::ExprHash,
+};
 use la_arena::Arena;
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
@@ -15,48 +19,26 @@ impl ContextHandle {
             ctx_handle: self.clone(),
         }
     }
-    pub fn var(&self, value: usize) -> ExprHandle {
+    pub fn var(&self, value: SupportedType) -> ExprHandle {
         let kind = Expr::Var(value);
         self.expr_handle_for(kind)
     }
-    pub fn constant(&self, value: usize) -> ExprHandle {
+    pub fn constant(&self, value: SupportedType) -> ExprHandle {
         let kind = Expr::Const(value);
         self.expr_handle_for(kind)
-    }
-}
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
-enum ExprHash {
-    Value(usize),
-    /// ExprIds are ordered before forming Double to avoid order originating duplicates.
-    Double(ExprIdx, ExprIdx),
-}
-
-impl From<&Expr> for ExprHash {
-    fn from(expr: &Expr) -> Self {
-        match expr {
-            Expr::Var(v) | Expr::Const(v) => Self::Value(*v),
-            Expr::Add(idx, idx1) | Expr::Sub(idx, idx1) | Expr::Mul(idx, idx1) => {
-                let (mut idx_1, mut idx_2) = (*idx, *idx1);
-                if idx_1 > idx_2 {
-                    (idx_1, idx_2) = (idx_2, idx_1)
-                }
-                Self::Double(idx_1, idx_2)
-            }
-        }
     }
 }
 
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct Context {
-    q: usize,
+    q: SupportedType,
     pub(crate) arena: Arena<Expr>,
     map: HashMap<ExprHash, ExprIdx>,
 }
 
 impl Context {
-    pub(crate) fn new(q: usize) -> Self {
+    pub(crate) fn new(q: SupportedType) -> Self {
         Self {
             q,
             arena: Arena::new(),
