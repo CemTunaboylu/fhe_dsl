@@ -4,7 +4,7 @@ use la_arena::Idx;
 pub(crate) type ExprIdx = Idx<Expr>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum Expr {
+pub enum Expr {
     Var(SupportedType),
     Const(SupportedType),
     Add(ExprIdx, ExprIdx),
@@ -14,24 +14,16 @@ pub(crate) enum Expr {
 
 #[derive(Clone, Debug)]
 pub struct ExprHandle {
-    pub(crate) idx: ExprIdx,
-    pub(crate) ctx_handle: ContextHandle,
+    pub idx: ExprIdx,
+    pub ctx_handle: ContextHandle,
 }
 
 impl ExprHandle {
-    fn push_in_context_of(&self, expr: Expr) -> ExprIdx {
-        let mut ctx = self.ctx_handle.0.borrow_mut();
-        ctx.append(expr)
-    }
-    fn get_handle(&self) -> ContextHandle {
-        self.ctx_handle.clone()
-    }
     pub(crate) fn extend_new_handle(&self, expr: Expr) -> Self {
-        let expr_idx = self.push_in_context_of(expr);
-        Self {
-            idx: expr_idx,
-            ctx_handle: self.get_handle(),
-        }
+        self.ctx_handle.expr_handle_for(expr)
+    }
+    pub fn get_expr(&self) -> Expr {
+        self.ctx_handle.get(self.idx)
     }
 }
 

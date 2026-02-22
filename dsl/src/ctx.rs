@@ -12,7 +12,10 @@ pub type ContextRef = RefCell<Context>;
 pub struct ContextHandle(pub Rc<ContextRef>);
 
 impl ContextHandle {
-    fn expr_handle_for(&self, expr: Expr) -> ExprHandle {
+    pub fn get(&self, ix: ExprIdx) -> Expr {
+        self.0.borrow().arena[ix]
+    }
+    pub(crate) fn expr_handle_for(&self, expr: Expr) -> ExprHandle {
         let expr_idx = self.0.borrow_mut().append(expr);
         ExprHandle {
             idx: expr_idx,

@@ -1,5 +1,5 @@
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
-pub(crate) enum BinOp {
+pub enum BinOp {
     Add,
     Sub,
     Mul,
