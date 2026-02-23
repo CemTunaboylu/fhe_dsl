@@ -1,7 +1,7 @@
 use crate::{SupportedType, ctx::ContextHandle};
 use la_arena::Idx;
 
-pub(crate) type ExprIdx = Idx<Expr>;
+pub type ExprIdx = Idx<Expr>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Expr {

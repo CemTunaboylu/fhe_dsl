@@ -3,8 +3,11 @@ use crate::{
     expr::{Expr, ExprHandle, ExprIdx},
     hash::ExprHash,
 };
+use bit_set::BitSet;
 use la_arena::Arena;
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
+
+use thin_vec::{IntoIter as ThinIntoIter, ThinVec};
 
 pub type ContextRef = RefCell<Context>;
 
@@ -57,5 +60,33 @@ impl Context {
         let expr_idx = self.arena.alloc(expr);
         self.map.insert(expr_hash, expr_idx);
         expr_idx
+    }
+
+    /// Eliminates unused edges by operating on operator expressions, also returns the set of
+    /// unused ExprIdx.
+    pub fn into_edges_and_unused(&self) -> (ThinIntoIter<(u32, u32)>, BitSet<u32>) {
+        let mut edges = ThinVec::new();
+        let mut unused = BitSet::<u32>::new();
+
+        for i in 0..self.arena.len() {
+            unused.insert(i);
+        }
+        for (expr_idx, expr) in self.arena.iter() {
+            let expr_u32 = expr_idx.into_raw().into_u32();
+            unused.remove(expr_u32 as usize);
+            match expr {
+                Expr::Var(_) | Expr::Const(_) => continue,
+                Expr::Add(lhs, rhs) | Expr::Sub(lhs, rhs) | Expr::Mul(lhs, rhs) => {
+                    let lhs_u32 = lhs.into_raw().into_u32();
+                    let rhs_u32 = rhs.into_raw().into_u32();
+
+                    unused.remove(lhs_u32 as usize);
+                    unused.remove(rhs_u32 as usize);
+
+                    edges.extend_from_slice(&[(lhs_u32, expr_u32), (rhs_u32, expr_u32)]);
+                }
+            }
+        }
+        (edges.into_iter(), unused)
     }
 }
