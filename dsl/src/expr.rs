@@ -5,7 +5,8 @@ pub type ExprIdx = Idx<Expr>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Expr {
-    Var(SupportedType),
+    /// takes the index of the argument
+    Input(usize),
     Const(SupportedType),
     Add(ExprIdx, ExprIdx),
     Sub(ExprIdx, ExprIdx),
@@ -41,15 +42,15 @@ mod tests {
     }
 
     #[test]
-    fn test_var() {
+    fn test_input() {
         let ctx_handle = test_ctx_handle();
-        let value = 9;
-        let var = ctx_handle.var(value);
+        let index = 0;
+        let input = ctx_handle.input(index);
 
-        assert_eq!(var.idx.into_raw().into_u32(), 0);
+        assert_eq!(input.idx.into_raw().into_u32(), 0);
 
-        let inserted_expr = ctx_handle.0.borrow().arena[var.idx];
-        assert_eq!(inserted_expr, Expr::Var(value));
+        let inserted_expr = ctx_handle.0.borrow().arena[input.idx];
+        assert_eq!(inserted_expr, Expr::Input(index));
     }
 
     #[test]
@@ -65,7 +66,7 @@ mod tests {
     }
 
     #[test]
-    fn test_hash_consing_for_values() {
+    fn test_hash_consing_for_constants_and_inputs() {
         let ctx_handle = test_ctx_handle();
         let constant_value = 9;
         let constant = ctx_handle.constant(constant_value);
@@ -80,15 +81,15 @@ mod tests {
             expected_length_for_constant
         );
 
-        let var_value = 8;
-        let variable = ctx_handle.var(var_value);
+        let index = 0;
+        let input = ctx_handle.input(index);
 
-        let expected_length_for_var = ctx_handle.0.borrow().arena.len();
-        assert_eq!(variable.idx.into_raw().into_u32(), 1);
+        let expected_length_for_input = ctx_handle.0.borrow().arena.len();
+        assert_eq!(input.idx.into_raw().into_u32(), 1);
 
-        let same_var = ctx_handle.var(var_value);
-        assert_eq!(same_var.idx.into_raw().into_u32(), 1);
-        assert_eq!(ctx_handle.0.borrow().arena.len(), expected_length_for_var);
+        let another_input = ctx_handle.input(index);
+        assert_eq!(another_input.idx.into_raw().into_u32(), 1);
+        assert_eq!(ctx_handle.0.borrow().arena.len(), expected_length_for_input);
     }
 
     impl Expr {

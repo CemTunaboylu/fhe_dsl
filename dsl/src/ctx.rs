@@ -25,8 +25,8 @@ impl ContextHandle {
             ctx_handle: self.clone(),
         }
     }
-    pub fn var(&self, value: SupportedType) -> ExprHandle {
-        let kind = Expr::Var(value);
+    pub fn input(&self, index: usize) -> ExprHandle {
+        let kind = Expr::Input(index);
         self.expr_handle_for(kind)
     }
     pub fn constant(&self, value: SupportedType) -> ExprHandle {
@@ -75,7 +75,7 @@ impl Context {
             let expr_u32 = expr_idx.into_raw().into_u32();
             unused.remove(expr_u32 as usize);
             match expr {
-                Expr::Var(_) | Expr::Const(_) => continue,
+                Expr::Input(_) | Expr::Const(_) => continue,
                 Expr::Add(lhs, rhs) | Expr::Sub(lhs, rhs) | Expr::Mul(lhs, rhs) => {
                     let lhs_u32 = lhs.into_raw().into_u32();
                     let rhs_u32 = rhs.into_raw().into_u32();

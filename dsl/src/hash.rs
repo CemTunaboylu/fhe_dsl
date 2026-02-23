@@ -6,7 +6,7 @@ use crate::{
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub(crate) enum ExprHash {
-    Var(SupportedType),
+    Input(usize),
     Const(SupportedType),
     /// ExprIds are ordered before forming Double to avoid order originating duplicates,
     /// except non-commutatives.
@@ -16,7 +16,7 @@ pub(crate) enum ExprHash {
 impl From<&Expr> for ExprHash {
     fn from(expr: &Expr) -> Self {
         let (op, mut lhs, mut rhs) = match expr {
-            Expr::Var(v) => return Self::Var(*v),
+            Expr::Input(index) => return Self::Input(*index),
             Expr::Const(v) => return Self::Const(*v),
             Expr::Add(idx, idx1) => (BinOp::Add, *idx, *idx1),
             Expr::Sub(idx, idx1) => return Self::BinOp(BinOp::Sub, *idx, *idx1),
