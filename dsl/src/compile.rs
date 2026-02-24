@@ -5,15 +5,35 @@ use ir::{
 };
 
 use fxhash::FxBuildHasher;
-use la_arena::Arena;
+use la_arena::{Arena, Idx, RawIdx};
 use thin_vec::ThinVec;
 
 use std::collections::HashMap;
 
 use crate::{
-    ctx::ContextHandle,
+    ctx::{CompilationMode, ContextHandle},
     expr::{Expr, ExprHandle, ExprIdx},
 };
+
+#[derive(Clone, Debug)]
+pub struct CompilationError {
+    pub unused_inputs: ThinVec<Expr>,
+    pub unused_constants: ThinVec<Expr>,
+    pub unused_operations: ThinVec<Expr>,
+}
+
+pub type CompilationResult = Result<Circuit, CompilationError>;
+
+impl ContextHandle {
+    pub fn compile(&self, output: ExprHandle) -> CompilationResult {
+        let circuit_builder = CircuitCompiler::with(self.clone());
+        circuit_builder.build_from(&[output])
+    }
+    pub fn compile_many(&self, outputs: &[ExprHandle]) -> CompilationResult {
+        let circuit_builder = CircuitCompiler::with(self.clone());
+        circuit_builder.build_from(outputs)
+    }
+}
 
 type FxHashMap<K, V> = HashMap<K, V, FxBuildHasher>;
 
@@ -28,6 +48,44 @@ struct CircuitCompiler {
 }
 
 impl CircuitCompiler {
+    /// Gathers all of the unused Expressions and returns error on them if any.
+    fn apply_mode(&self) -> Result<(), CompilationError> {
+        let ctx = self.context_handle.0.borrow();
+        if matches!(ctx.mode, CompilationMode::Loose) {
+            return Ok(());
+        }
+        let mut unused = ctx.create_set_of_all_indices();
+        for expr_idx in self.expr_idx_to_gate_idx.keys() {
+            let expr_u32 = expr_idx.into_raw().into_u32();
+            unused.remove(expr_u32 as usize);
+        }
+
+        if unused.is_empty() {
+            return Ok(());
+        }
+
+        let mut unused_inputs = ThinVec::new();
+        let mut unused_constants = ThinVec::new();
+        let mut unused_operations = ThinVec::new();
+
+        for idx in unused.iter() {
+            let expr_idx = Idx::from_raw(RawIdx::from_u32(idx as u32));
+            let expr = self.context_handle.get(expr_idx);
+            let to_push_in = match &expr {
+                Expr::Input(_) => &mut unused_inputs,
+                Expr::Const(_) => &mut unused_constants,
+                Expr::BinOp(_, _, _) => &mut unused_operations,
+            };
+
+            to_push_in.push(expr);
+        }
+
+        Err(CompilationError {
+            unused_inputs,
+            unused_constants,
+            unused_operations,
+        })
+    }
     pub fn with(context_handle: ContextHandle) -> Self {
         let q = context_handle.0.borrow().q;
         let expr_idx_to_gate_idx = HashMap::with_hasher(FxBuildHasher::default());
@@ -56,7 +114,7 @@ impl CircuitCompiler {
         self.expr_idx_to_gate_idx.get(expr_index)
     }
 
-    fn build_from(mut self, outputs: &[ExprHandle]) -> Circuit {
+    fn build_from(mut self, outputs: &[ExprHandle]) -> CompilationResult {
         let mut roots = outputs.iter();
         let mut output_gate_indices = ThinVec::new();
         let mut dfs_stack = ThinVec::new();
@@ -154,6 +212,8 @@ impl CircuitCompiler {
             }
         }
 
+        self.apply_mode()?;
+
         // Push the lowered root(s) into outputs list.
         for out_expr_idx in output_gate_indices.iter() {
             let current_output_gate_idx = self
@@ -164,33 +224,29 @@ impl CircuitCompiler {
 
         dbg!(&self);
 
-        Circuit::with(self.q, self.gates, self.inputs, self.outputs)
-    }
-}
-
-impl ContextHandle {
-    pub fn compile(&self, output: ExprHandle) -> Circuit {
-        let circuit_builder = CircuitCompiler::with(self.clone());
-        circuit_builder.build_from(&[output])
-    }
-    pub fn compile_many(&self, outputs: &[ExprHandle]) -> Circuit {
-        let circuit_builder = CircuitCompiler::with(self.clone());
-        circuit_builder.build_from(outputs)
+        Ok(Circuit::with(self.q, self.gates, self.inputs, self.outputs))
     }
 }
 
 #[cfg(test)]
 mod tests {
 
+    use parameterized_test::create;
+    use thin_vec::thin_vec;
+
     use la_arena::RawIdx;
     use op::BinOp;
 
-    use crate::new_context;
+    use crate::{ctx::CompilationMode, new_loose_context, new_strict_context};
 
     use super::*;
 
     fn test_ctx_handle() -> ContextHandle {
-        new_context(7)
+        new_strict_context(7)
+    }
+
+    fn test_loose_ctx_handle() -> ContextHandle {
+        new_loose_context(5)
     }
 
     fn into_gate_idx(idx: u32) -> GateIdx {
@@ -198,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    fn test_single_addition_with_same_constants() {
+    fn test_single_addition_with_same_constants_strict() {
         let ctx_handle = test_ctx_handle();
         let value = 9;
         let constant_1 = ctx_handle.constant(value);
@@ -207,7 +263,7 @@ mod tests {
 
         let expected_length = 2;
 
-        let circuit = ctx_handle.compile(out);
+        let circuit = ctx_handle.compile(out).expect("to compile");
 
         assert_eq!(expected_length, circuit.gates().len());
         assert_eq!(0, circuit.inputs().len());
@@ -224,7 +280,7 @@ mod tests {
     }
 
     #[test]
-    fn test_single_addition_with_constant_and_input() {
+    fn test_single_addition_with_constant_and_input_strict() {
         let ctx_handle = test_ctx_handle();
         let value = 9;
         let index = 0;
@@ -234,7 +290,7 @@ mod tests {
 
         let expected_length = 3;
 
-        let circuit = ctx_handle.compile(out);
+        let circuit = ctx_handle.compile(out).expect("to compile");
 
         assert_eq!(expected_length, circuit.gates().len());
         assert_eq!(1, circuit.inputs().len());
@@ -254,7 +310,7 @@ mod tests {
     }
 
     #[test]
-    fn test_same_double_addition_and_multiplication() {
+    fn test_same_double_addition_and_multiplication_strict() {
         let ctx_handle = test_ctx_handle();
         let value = 9;
         let constant_1 = ctx_handle.constant(value);
@@ -264,7 +320,7 @@ mod tests {
 
         let expected_length = 3;
 
-        let circuit = ctx_handle.compile(out);
+        let circuit = ctx_handle.compile(out).expect("to compile");
 
         assert_eq!(expected_length, circuit.gates().len());
         assert_eq!(0, circuit.inputs().len());
@@ -287,7 +343,7 @@ mod tests {
     }
 
     #[test]
-    fn test_different_double_addition_and_multiplication() {
+    fn test_different_double_addition_and_multiplication_strict() {
         let ctx_handle = test_ctx_handle();
 
         let values = [1, 2, 3, 4];
@@ -302,7 +358,7 @@ mod tests {
 
         let expected_length = 7;
 
-        let circuit = ctx_handle.compile(out);
+        let circuit = ctx_handle.compile(out).expect("to compile");
 
         assert_eq!(expected_length, circuit.gates().len());
         assert_eq!(0, circuit.inputs().len());
@@ -336,5 +392,100 @@ mod tests {
             Gate::BinOp(BinOp::Mul, add_gate_idx, add_gate_idx_2),
             circuit.gates()[mul_gate_idx]
         );
+    }
+
+    fn moded_ctx(mode: CompilationMode) -> ContextHandle {
+        if matches!(mode, CompilationMode::Strict) {
+            test_ctx_handle()
+        } else {
+            test_loose_ctx_handle()
+        }
+    }
+    create! {
+        create_compilation_mode_test,
+        (mode, f, errs, num_elms_in_err_list), {
+            let ctx_handle = moded_ctx(mode);
+            let outs = f(ctx_handle.clone());
+            let result = if outs.len() == 1 {
+                ctx_handle.compile(outs[0].clone())
+            } else {
+                ctx_handle.compile_many(outs.as_slice())
+            };
+            assert_eq!(errs, result.is_err());
+
+            if let Err(error) = result {
+                for (ix, num_elm) in num_elms_in_err_list.iter().enumerate() {
+                    match ix {
+                        0 => assert_eq!(*num_elm, error.unused_inputs.len()),
+                        1 => assert_eq!(*num_elm, error.unused_constants.len()),
+                        2 => assert_eq!(*num_elm, error.unused_operations.len()),
+                        _ => unreachable!(),
+                    }
+                }
+
+            }
+        }
+    }
+
+    const STRICT: CompilationMode = CompilationMode::Strict;
+    const LOOSE: CompilationMode = CompilationMode::Loose;
+
+    const ERRS: bool = true;
+    const COMPILES: bool = false;
+
+    const NONE: &[usize] = &[];
+
+    #[allow(unused)]
+    fn unused_input(ctx_handle: ContextHandle) -> ThinVec<ExprHandle> {
+        let unused_input = ctx_handle.input(0);
+        let input = ctx_handle.input(1);
+
+        let out = &input + &input;
+        thin_vec![out]
+    }
+
+    #[allow(unused)]
+    fn unused_constant(ctx_handle: ContextHandle) -> ThinVec<ExprHandle> {
+        let unused_constant = ctx_handle.constant(0);
+        let constant = ctx_handle.constant(1);
+
+        let out = &constant + &constant;
+        thin_vec![out]
+    }
+
+    #[allow(unused)]
+    fn unused_operation(ctx_handle: ContextHandle) -> ThinVec<ExprHandle> {
+        let input = ctx_handle.input(1);
+        let constant = ctx_handle.constant(1);
+
+        let unused_add = &input + &constant;
+
+        let out = &input * &constant;
+        thin_vec![out]
+    }
+
+    #[allow(unused)]
+    fn unused_all(ctx_handle: ContextHandle) -> ThinVec<ExprHandle> {
+        let unused_input = ctx_handle.input(0);
+        let input = ctx_handle.input(1);
+
+        let unused_constant = ctx_handle.constant(0);
+        let constant = ctx_handle.constant(1);
+
+        let unused_add = &input + &constant;
+
+        let out = &input * &constant;
+        thin_vec![out]
+    }
+
+    create_compilation_mode_test! {
+        unused_input_do_not_compile_when_strict: (STRICT, unused_input, ERRS, &[1,0,0]),
+        unused_input_compiles_when_loose: (LOOSE, unused_input, COMPILES, NONE),
+        unused_constant_do_not_compile_when_strict: (STRICT, unused_constant, ERRS, &[0,1,0]),
+        unused_constant_compiles_when_loose: (LOOSE, unused_constant, COMPILES, NONE),
+        unused_operation_do_not_compile_when_strict: (STRICT, unused_operation, ERRS, &[0,0,1]),
+        unused_operation_compiles_when_loose: (LOOSE, unused_operation, COMPILES, NONE),
+        unused_all_do_not_compile_when_strict: (STRICT, unused_all, ERRS, &[1,1,1]),
+        unused_all_compiles_when_loose: (LOOSE, unused_all, COMPILES, NONE),
     }
 }

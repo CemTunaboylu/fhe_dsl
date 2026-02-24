@@ -45,18 +45,26 @@ impl ContextHandle {
     }
 }
 
-#[allow(dead_code)]
+#[derive(Clone, Debug, Default)]
+pub enum CompilationMode {
+    Loose,
+    #[default]
+    Strict,
+}
+
 #[derive(Clone, Debug)]
 pub struct Context {
     pub(crate) q: SupportedType,
     pub(crate) arena: Arena<Expr>,
+    pub(crate) mode: CompilationMode,
     map: HashMap<ExprHash, ExprIdx>,
 }
 
 impl Context {
-    pub(crate) fn new(q: SupportedType) -> Self {
+    pub(crate) fn new(q: SupportedType, mode: CompilationMode) -> Self {
         Self {
             q,
+            mode,
             arena: Arena::new(),
             map: HashMap::new(),
         }
@@ -65,15 +73,20 @@ impl Context {
     pub fn from_root_to_leaves(&self) -> impl Iterator<Item = (ExprIdx, &Expr)> {
         self.arena.iter()
     }
+    pub(crate) fn create_set_of_all_indices(&self) -> BitSet {
+        let mut set = BitSet::<u32>::new();
+
+        for i in 0..self.arena.len() {
+            set.insert(i);
+        }
+        set
+    }
     /// Eliminates unused edges by operating on operator expressions, also returns the set of
     /// unused ExprIdx.
     pub fn into_edges_and_unused(&self) -> (ThinIntoIter<(u32, u32)>, BitSet<u32>) {
         let mut edges = ThinVec::new();
-        let mut unused = BitSet::<u32>::new();
+        let mut unused = self.create_set_of_all_indices();
 
-        for i in 0..self.arena.len() {
-            unused.insert(i);
-        }
         for (expr_idx, expr) in self.arena.iter() {
             let expr_u32 = expr_idx.into_raw().into_u32();
             unused.remove(expr_u32 as usize);

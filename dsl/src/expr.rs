@@ -32,12 +32,12 @@ mod tests {
     use parameterized_test::create;
     use std::ops::{Add, Mul, Sub};
 
-    use crate::new_context;
+    use crate::new_loose_context;
 
     use super::*;
 
     fn test_ctx_handle() -> ContextHandle {
-        new_context(7)
+        new_loose_context(5)
     }
 
     #[test]
