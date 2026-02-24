@@ -4,3 +4,4 @@ pub enum BinOp {
     Sub,
     Mul,
 }
+

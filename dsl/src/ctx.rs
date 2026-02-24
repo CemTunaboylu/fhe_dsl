@@ -79,7 +79,7 @@ impl Context {
             unused.remove(expr_u32 as usize);
             match expr {
                 Expr::Input(_) | Expr::Const(_) => continue,
-                Expr::Add(lhs, rhs) | Expr::Sub(lhs, rhs) | Expr::Mul(lhs, rhs) => {
+                Expr::BinOp(_bin_op, lhs, rhs) => {
                     let lhs_u32 = lhs.into_raw().into_u32();
                     let rhs_u32 = rhs.into_raw().into_u32();
 

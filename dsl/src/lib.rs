@@ -8,7 +8,6 @@ pub mod ctx;
 pub mod expr;
 pub mod hash;
 pub mod mul;
-pub mod op;
 pub mod sub;
 
 pub type SupportedType = u64;

@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+op = {path = "../op"}
+
 bit-set.workspace = true
 fxhash.workspace = true
 la-arena.workspace= true

@@ -1,8 +1,9 @@
 use crate::{
     SupportedType,
     expr::{Expr, ExprIdx},
-    op::BinOp,
 };
+
+use op::BinOp;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub(crate) enum ExprHash {
@@ -18,9 +19,13 @@ impl From<&Expr> for ExprHash {
         let (op, mut lhs, mut rhs) = match expr {
             Expr::Input(index) => return Self::Input(*index),
             Expr::Const(v) => return Self::Const(*v),
-            Expr::Add(idx, idx1) => (BinOp::Add, *idx, *idx1),
-            Expr::Sub(idx, idx1) => return Self::BinOp(BinOp::Sub, *idx, *idx1),
-            Expr::Mul(idx, idx1) => (BinOp::Mul, *idx, *idx1),
+            Expr::BinOp(bin_op, lhs, rhs) => {
+                if *bin_op == BinOp::Sub {
+                    return Self::BinOp(*bin_op, *lhs, *rhs);
+                }
+
+                (*bin_op, *lhs, *rhs)
+            }
         };
 
         if lhs > rhs {

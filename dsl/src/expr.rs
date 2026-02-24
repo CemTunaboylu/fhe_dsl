@@ -1,5 +1,6 @@
 use crate::{SupportedType, ctx::ContextHandle};
 use la_arena::Idx;
+use op::BinOp;
 
 pub type ExprIdx = Idx<Expr>;
 
@@ -8,9 +9,7 @@ pub enum Expr {
     /// takes the index of the argument
     Input(usize),
     Const(SupportedType),
-    Add(ExprIdx, ExprIdx),
-    Sub(ExprIdx, ExprIdx),
-    Mul(ExprIdx, ExprIdx),
+    BinOp(BinOp, ExprIdx, ExprIdx),
 }
 
 #[derive(Clone, Debug)]
@@ -33,7 +32,7 @@ mod tests {
     use parameterized_test::create;
     use std::ops::{Add, Mul, Sub};
 
-    use crate::{new_context, op::BinOp};
+    use crate::new_context;
 
     use super::*;
 
@@ -92,18 +91,6 @@ mod tests {
         assert_eq!(ctx_handle.0.borrow().arena.len(), expected_length_for_input);
     }
 
-    impl Expr {
-        fn add(expr_idx_1: ExprIdx, expr_idx_2: ExprIdx) -> Self {
-            Self::Add(expr_idx_1, expr_idx_2)
-        }
-        fn sub(expr_idx_1: ExprIdx, expr_idx_2: ExprIdx) -> Self {
-            Self::Sub(expr_idx_1, expr_idx_2)
-        }
-        fn mul(expr_idx_1: ExprIdx, expr_idx_2: ExprIdx) -> Self {
-            Self::Mul(expr_idx_1, expr_idx_2)
-        }
-    }
-
     #[derive(Clone, Debug)]
     enum Mode {
         Move,
@@ -121,26 +108,22 @@ mod tests {
         e_1 * e_2
     }
 
-    fn perform_op_with_expectation<O>(
-        op: BinOp,
-        operand_1: O,
-        operand_2: O,
-    ) -> (ExprHandle, fn(ExprIdx, ExprIdx) -> Expr)
+    fn perform_op_with_expectation<O>(op: BinOp, operand_1: O, operand_2: O) -> (ExprHandle, BinOp)
     where
         O: Add<Output = ExprHandle> + Sub<Output = ExprHandle> + Mul<Output = ExprHandle>,
     {
         match op {
             BinOp::Add => {
                 let result = add(operand_1, operand_2);
-                (result, Expr::add)
+                (result, BinOp::Add)
             }
             BinOp::Sub => {
                 let result = sub(operand_1, operand_2);
-                (result, Expr::sub)
+                (result, BinOp::Sub)
             }
             BinOp::Mul => {
                 let result = mul(operand_1, operand_2);
-                (result, Expr::mul)
+                (result, BinOp::Mul)
             }
         }
     }
@@ -154,21 +137,21 @@ mod tests {
         match mode {
             Mode::Move => {
                 let (idx_1, idx_2) = (expr_handle_1.idx, expr_handle_2.idx);
-                let (expr_handle, expr_kind) =
+                let (expr_handle, bin_op) =
                     perform_op_with_expectation(op, expr_handle_1, expr_handle_2);
-                (expr_handle, expr_kind(idx_1, idx_2))
+                (expr_handle, Expr::BinOp(bin_op, idx_1, idx_2))
             }
             Mode::Borrow => {
                 let (idx_1, idx_2) = (expr_handle_1.idx, expr_handle_2.idx);
-                let (expr_handle, expr_kind) =
+                let (expr_handle, bin_op) =
                     perform_op_with_expectation(op, &expr_handle_1, &expr_handle_2);
-                (expr_handle, expr_kind(idx_1, idx_2))
+                (expr_handle, Expr::BinOp(bin_op, idx_1, idx_2))
             }
             Mode::BorrowMut => {
                 let (idx_1, idx_2) = (expr_handle_1.idx, expr_handle_2.idx);
-                let (expr_handle, expr_kind) =
+                let (expr_handle, bin_op) =
                     perform_op_with_expectation(op, &mut expr_handle_1, &mut expr_handle_2);
-                (expr_handle, expr_kind(idx_1, idx_2))
+                (expr_handle, Expr::BinOp(bin_op, idx_1, idx_2))
             }
         }
     }

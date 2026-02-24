@@ -2,11 +2,13 @@ use std::ops::Mul;
 
 use crate::expr::{Expr, ExprHandle};
 
+use op::BinOp;
+
 impl Mul for &ExprHandle {
     type Output = ExprHandle;
 
     fn mul(self, rhs: Self) -> Self::Output {
-        let expr = Expr::Mul(self.idx, rhs.idx);
+        let expr = Expr::BinOp(BinOp::Mul, self.idx, rhs.idx);
         self.extend_new_handle(expr)
     }
 }

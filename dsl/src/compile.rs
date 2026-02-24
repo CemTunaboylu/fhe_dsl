@@ -84,7 +84,7 @@ impl CircuitCompiler {
                     }
                     // Here, if we haven't already, we push children into the stack to first lower them, (post-order)
                     // or we retrieve their gate indices to form the op gate.
-                    Expr::Add(lhs, rhs) | Expr::Sub(lhs, rhs) | Expr::Mul(lhs, rhs) => {
+                    Expr::BinOp(bin_op, lhs, rhs) => {
                         let lhs_gate_idx_opt = self.get_lowered(&lhs);
                         let rhs_gate_idx_opt = self.get_lowered(&rhs);
 
@@ -120,13 +120,8 @@ impl CircuitCompiler {
                         // operation with their gate indices.
                         let lhs_gate_idx = lhs_gate_idx_opt.unwrap();
                         let rhs_gate_idx = rhs_gate_idx_opt.unwrap();
-                        let gate = if matches!(expr, Expr::Add(_, _)) {
-                            Gate::Add(*lhs_gate_idx, *rhs_gate_idx)
-                        } else if matches!(expr, Expr::Sub(_, _)) {
-                            Gate::Sub(*lhs_gate_idx, *rhs_gate_idx)
-                        } else {
-                            Gate::Mul(*lhs_gate_idx, *rhs_gate_idx)
-                        };
+
+                        let gate = Gate::BinOp(bin_op, *lhs_gate_idx, *rhs_gate_idx);
                         (gate, false)
                     }
                 };
@@ -175,6 +170,7 @@ impl ContextHandle {
 mod tests {
 
     use la_arena::RawIdx;
+    use op::BinOp;
 
     use crate::new_context;
 
@@ -209,7 +205,7 @@ mod tests {
 
         let add_gate_idx = into_gate_idx(1);
         assert_eq!(
-            Gate::Add(const_gate_idx, const_gate_idx),
+            Gate::BinOp(BinOp::Add, const_gate_idx, const_gate_idx),
             circuit.gates()[add_gate_idx]
         );
     }
@@ -236,13 +232,13 @@ mod tests {
 
         let add_gate_idx = into_gate_idx(1);
         assert_eq!(
-            Gate::Add(const_gate_idx, const_gate_idx),
+            Gate::BinOp(BinOp::Add, const_gate_idx, const_gate_idx),
             circuit.gates()[add_gate_idx]
         );
 
         let mul_gate_idx = into_gate_idx(2);
         assert_eq!(
-            Gate::Mul(add_gate_idx, add_gate_idx),
+            Gate::BinOp(BinOp::Mul, add_gate_idx, add_gate_idx),
             circuit.gates()[mul_gate_idx]
         );
     }
@@ -279,7 +275,7 @@ mod tests {
         let const_2_gate_idx = into_gate_idx(1);
 
         assert_eq!(
-            Gate::Add(const_1_gate_idx, const_2_gate_idx),
+            Gate::BinOp(BinOp::Add, const_1_gate_idx, const_2_gate_idx),
             circuit.gates()[add_gate_idx]
         );
 
@@ -288,13 +284,13 @@ mod tests {
         let const_4_gate_idx = into_gate_idx(4);
 
         assert_eq!(
-            Gate::Add(const_3_gate_idx, const_4_gate_idx),
+            Gate::BinOp(BinOp::Add, const_3_gate_idx, const_4_gate_idx),
             circuit.gates()[add_gate_idx_2]
         );
 
         let mul_gate_idx = into_gate_idx(6);
         assert_eq!(
-            Gate::Mul(add_gate_idx, add_gate_idx_2),
+            Gate::BinOp(BinOp::Mul, add_gate_idx, add_gate_idx_2),
             circuit.gates()[mul_gate_idx]
         );
     }

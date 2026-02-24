@@ -1,6 +1,7 @@
 use la_arena::Idx;
 
 use crate::SupportedType;
+use op::BinOp;
 
 pub type GateIdx = Idx<Gate>;
 
@@ -9,9 +10,7 @@ pub type GateIdx = Idx<Gate>;
 pub enum Gate {
     Input(usize),
     Const(SupportedType),
-    Add(GateIdx, GateIdx),
-    Sub(GateIdx, GateIdx),
-    Mul(GateIdx, GateIdx),
+    BinOp(BinOp, GateIdx, GateIdx),
 }
 
 #[derive(Clone, Debug)]

@@ -2,11 +2,13 @@ use std::ops::Add;
 
 use crate::expr::{Expr, ExprHandle};
 
+use op::BinOp;
+
 impl Add for &ExprHandle {
     type Output = ExprHandle;
 
     fn add(self, rhs: Self) -> Self::Output {
-        let expr = Expr::Add(self.idx, rhs.idx);
+        let expr = Expr::BinOp(BinOp::Add, self.idx, rhs.idx);
         self.extend_new_handle(expr)
     }
 }
