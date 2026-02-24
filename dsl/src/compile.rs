@@ -131,11 +131,6 @@ impl CircuitCompiler {
                 }
                 self.pair(current_expr_idx, gate_idx);
             }
-            // If we don't have a node at hand, we first try the stack.
-            // The current_node is already lowered, so we continue consuming the stack.
-            else if current_node.is_none() {
-                current_node = dfs_stack.pop();
-            }
             // If stack is empty, we consumed all the sub-tree of the current node, thus we
             // retrieve next if any.
             else if dfs_stack.is_empty() {
@@ -144,6 +139,11 @@ impl CircuitCompiler {
                 } else {
                     break;
                 }
+            }
+            // If we don't have a node at hand, we first try the stack.
+            // The current_node is already lowered, so we continue consuming the stack.
+            else if current_node.is_none() {
+                current_node = dfs_stack.pop();
             }
             // The stack and roots are consumed, we stop the lowering.
             else {
