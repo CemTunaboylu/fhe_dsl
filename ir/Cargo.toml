@@ -1,11 +1,9 @@
 [package]
-name = "dsl"
+name = "ir"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-ir = {path = "../ir"}
-
 bit-set.workspace = true
 fxhash.workspace = true
 la-arena.workspace= true

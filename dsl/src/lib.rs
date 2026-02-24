@@ -3,6 +3,7 @@ use std::{cell::RefCell, rc::Rc};
 use crate::ctx::{Context, ContextHandle};
 
 pub mod add;
+pub mod compile;
 pub mod ctx;
 pub mod expr;
 pub mod hash;
