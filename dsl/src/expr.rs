@@ -1,6 +1,8 @@
-use crate::{SupportedType, ctx::ContextHandle};
 use la_arena::Idx;
 use op::BinOp;
+use passes::interner::Internable;
+
+use crate::{SupportedType, ctx::ContextHandle};
 
 pub type ExprIdx = Idx<Expr>;
 
@@ -11,6 +13,8 @@ pub enum Expr {
     Const(SupportedType),
     BinOp(BinOp, ExprIdx, ExprIdx),
 }
+
+impl Internable for Expr {}
 
 #[derive(Clone, Debug)]
 pub struct ExprHandle {
@@ -34,10 +38,16 @@ mod tests {
 
     use crate::new_loose_context;
 
+    use la_arena::Idx;
+
     use super::*;
 
     fn test_ctx_handle() -> ContextHandle {
         new_loose_context(5)
+    }
+
+    fn index_to_u32(idx: Idx<Expr>) -> u32 {
+        idx.into_raw().into_u32()
     }
 
     #[test]
@@ -46,9 +56,9 @@ mod tests {
         let index = 0;
         let input = ctx_handle.input(index);
 
-        assert_eq!(input.idx.into_raw().into_u32(), 0);
+        assert_eq!(index_to_u32(input.idx), 0);
 
-        let inserted_expr = ctx_handle.0.borrow().arena[input.idx];
+        let inserted_expr = ctx_handle.get(input.idx);
         assert_eq!(inserted_expr, Expr::Input(index));
     }
 
@@ -58,9 +68,9 @@ mod tests {
         let value = 9;
         let constant = ctx_handle.constant(value);
 
-        assert_eq!(constant.idx.into_raw().into_u32(), 0);
+        assert_eq!(index_to_u32(constant.idx), 0);
 
-        let inserted_expr = ctx_handle.0.borrow().arena[constant.idx];
+        let inserted_expr = ctx_handle.get(constant.idx);
         assert_eq!(inserted_expr, Expr::Const(value));
     }
 
@@ -70,25 +80,25 @@ mod tests {
         let constant_value = 9;
         let constant = ctx_handle.constant(constant_value);
 
-        let expected_length_for_constant = ctx_handle.0.borrow().arena.len();
-        assert_eq!(constant.idx.into_raw().into_u32(), 0);
+        let get_arena_len = |ch: &ContextHandle| ch.0.borrow().interner.arena.len();
+
+        let expected_length_for_constant = get_arena_len(&ctx_handle);
+        assert_eq!(index_to_u32(constant.idx), 0);
 
         let same_constant = ctx_handle.constant(constant_value);
-        assert_eq!(same_constant.idx.into_raw().into_u32(), 0);
-        assert_eq!(
-            ctx_handle.0.borrow().arena.len(),
-            expected_length_for_constant
-        );
+        assert_eq!(index_to_u32(same_constant.idx), 0);
+        assert_eq!(get_arena_len(&ctx_handle), expected_length_for_constant);
 
         let index = 0;
         let input = ctx_handle.input(index);
 
-        let expected_length_for_input = ctx_handle.0.borrow().arena.len();
-        assert_eq!(input.idx.into_raw().into_u32(), 1);
+        let expected_length_for_input = get_arena_len(&ctx_handle);
+        assert_eq!(index_to_u32(input.idx), 1);
 
         let another_input = ctx_handle.input(index);
-        assert_eq!(another_input.idx.into_raw().into_u32(), 1);
-        assert_eq!(ctx_handle.0.borrow().arena.len(), expected_length_for_input);
+        assert_eq!(index_to_u32(another_input.idx), 1);
+
+        assert_eq!(get_arena_len(&ctx_handle), expected_length_for_input);
     }
 
     #[derive(Clone, Debug)]
@@ -168,7 +178,7 @@ mod tests {
                 let constant_2 = ctx_handle.constant(value);
                 let (expr_handle, expectation) = perform_op_with_expectation_mode(op.clone(), constant_1, constant_2, mode);
 
-                let inserted_expr = ctx_handle.0.borrow().arena[expr_handle.idx];
+                let inserted_expr = ctx_handle.get(expr_handle.idx);
                 assert_eq!(inserted_expr, expectation);
             }
         }
@@ -190,7 +200,7 @@ mod tests {
             // Agnostic to the operands mode (move, borrowed), if operation is the same and the
             // values of operands are the same, it will be re-used.
             // + 1 for the operation at hand, +1 for the constants (identical thus won't allcoate)
-            let expected_arena_length = ctx_handle.0.borrow().arena.len() + 2;
+            let expected_arena_length = ctx_handle.0.borrow().interner.arena.len() + 2;
             for mode in [Mode::Move, Mode::Borrow, Mode::BorrowMut] {
                 let constant_1 = ctx_handle.constant(value);
                 let constant_2 = ctx_handle.constant(value);
@@ -198,7 +208,7 @@ mod tests {
                 let (same_expr_handle, expectation) = perform_op_with_expectation_mode(op.clone(), constant_1, constant_2, mode);
 
                 assert_eq!(expr_handle.idx, same_expr_handle.idx);
-                let current_arena_length = ctx_handle.0.borrow().arena.len();
+                let current_arena_length = ctx_handle.0.borrow().interner.arena.len();
                 assert_eq!(expected_arena_length, current_arena_length);
             }
         }

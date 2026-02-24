@@ -9,7 +9,7 @@ graphview = []
 [dependencies]
 ir = {path = "../ir"}
 op = {path = "../op"}
-
+passes = {path = "../passes"}
 
 bit-set.workspace = true
 fxhash.workspace = true

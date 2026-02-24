@@ -39,6 +39,7 @@ dependencies = [
  "la-arena",
  "op",
  "parameterized_test",
+ "passes",
  "thin-vec",
 ]
 
@@ -80,6 +81,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "718554e60527e39d1cad6aefd50ec410927e57b5b5ecefc21c4b1556e496333f"
 dependencies = [
  "anyhow",
+]
+
+[[package]]
+name = "passes"
+version = "0.1.0"
+dependencies = [
+ "fxhash",
+ "la-arena",
 ]
 
 [[package]]

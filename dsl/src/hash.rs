@@ -5,6 +5,15 @@ use crate::{
 
 use op::BinOp;
 
+use std::hash::{Hash, Hasher};
+
+impl Hash for Expr {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let expr_hash = ExprHash::from(self);
+        core::mem::discriminant(&expr_hash).hash(state);
+    }
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub(crate) enum ExprHash {
     Input(usize),

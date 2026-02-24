@@ -1,13 +1,13 @@
 use crate::{
     SupportedType,
     expr::{Expr, ExprHandle, ExprIdx},
-    hash::ExprHash,
 };
-use bit_set::BitSet;
-use la_arena::Arena;
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
+use bit_set::BitSet;
+use passes::interner::Interner;
 use thin_vec::{IntoIter as ThinIntoIter, ThinVec};
+
+use std::{cell::RefCell, rc::Rc};
 
 pub type ContextRef = RefCell<Context>;
 
@@ -16,7 +16,8 @@ pub struct ContextHandle(pub Rc<ContextRef>);
 
 impl ContextHandle {
     pub fn get(&self, ix: ExprIdx) -> Expr {
-        self.0.borrow().arena[ix]
+        let ctx_ref = self.0.borrow();
+        ctx_ref.interner.arena[ix]
     }
     pub(crate) fn expr_handle_for(&self, expr: Expr) -> ExprHandle {
         let expr_idx = self.append(expr);
@@ -34,14 +35,7 @@ impl ContextHandle {
         self.expr_handle_for(kind)
     }
     pub(crate) fn append(&self, expr: Expr) -> ExprIdx {
-        let expr_hash = ExprHash::from(&expr);
-        if let Some(expr_idx) = self.0.borrow().map.get(&expr_hash) {
-            return *expr_idx;
-        }
-        let mut ctx = self.0.borrow_mut();
-        let expr_idx = ctx.arena.alloc(expr);
-        ctx.map.insert(expr_hash, expr_idx);
-        expr_idx
+        self.0.borrow_mut().interner.intern(expr)
     }
 }
 
@@ -55,30 +49,23 @@ pub enum CompilationMode {
 #[derive(Clone, Debug)]
 pub struct Context {
     pub(crate) q: SupportedType,
-    pub(crate) arena: Arena<Expr>,
     pub(crate) mode: CompilationMode,
-    map: HashMap<ExprHash, ExprIdx>,
+    pub(crate) interner: Interner<Expr>,
 }
 
 impl Context {
     pub(crate) fn new(q: SupportedType, mode: CompilationMode) -> Self {
-        Self {
-            q,
-            mode,
-            arena: Arena::new(),
-            map: HashMap::new(),
-        }
+        let interner = Interner::new();
+        Self { q, mode, interner }
     }
     pub(crate) fn create_set_of_all_indices(&self) -> BitSet {
         let mut set = BitSet::<u32>::new();
 
-        for i in 0..self.arena.len() {
+        let len = self.interner.arena.len();
+        for i in 0..len {
             set.insert(i);
         }
         set
-    }
-    pub fn from_root_to_leaves(&self) -> impl Iterator<Item = (ExprIdx, &Expr)> {
-        self.arena.iter()
     }
     /// Eliminates unused edges by operating on operator expressions, also returns the set of
     /// unused ExprIdx.
@@ -87,7 +74,8 @@ impl Context {
         let mut edges = ThinVec::new();
         let mut unused = self.create_set_of_all_indices();
 
-        for (expr_idx, expr) in self.arena.iter() {
+        let arena = &self.interner.arena;
+        for (expr_idx, expr) in arena.iter() {
             let expr_u32 = expr_idx.into_raw().into_u32();
             unused.remove(expr_u32 as usize);
             match expr {
