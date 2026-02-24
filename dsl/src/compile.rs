@@ -58,11 +58,13 @@ impl CircuitCompiler {
 
     fn build_from(mut self, outputs: &[ExprHandle]) -> Circuit {
         let mut roots = outputs.iter();
+        let mut output_gate_indices = ThinVec::new();
         let mut dfs_stack = ThinVec::new();
 
         let into_expr_idx = |h: &ExprHandle| h.idx;
 
         let mut current_node = roots.next().map(into_expr_idx);
+        output_gate_indices.push(current_node.unwrap());
 
         // Iterative post order traversal from each output node eliminates all the
         // unused/unreachable Exprs since it only follows roots of outputs.
@@ -136,6 +138,7 @@ impl CircuitCompiler {
             else if dfs_stack.is_empty() {
                 if let Some(expr_idx) = roots.next().map(into_expr_idx) {
                     dfs_stack.push(expr_idx);
+                    output_gate_indices.push(expr_idx);
                 } else {
                     break;
                 }
@@ -150,7 +153,17 @@ impl CircuitCompiler {
                 break;
             }
         }
+
+        // Push the lowered root(s) into outputs list.
+        for out_expr_idx in output_gate_indices.iter() {
+            let current_output_gate_idx = self
+                .get_lowered(out_expr_idx)
+                .expect("output to be lowered");
+            self.outputs.push(*current_output_gate_idx);
+        }
+
         dbg!(&self);
+
         Circuit::with(self.q, self.gates, self.inputs, self.outputs)
     }
 }
@@ -198,7 +211,7 @@ mod tests {
 
         assert_eq!(expected_length, circuit.gates().len());
         assert_eq!(0, circuit.inputs().len());
-        assert_eq!(0, circuit.outputs().len());
+        assert_eq!(1, circuit.outputs().len());
 
         let const_gate_idx = into_gate_idx(0);
         assert_eq!(Gate::Const(value), circuit.gates()[const_gate_idx]);
@@ -225,7 +238,7 @@ mod tests {
 
         assert_eq!(expected_length, circuit.gates().len());
         assert_eq!(0, circuit.inputs().len());
-        assert_eq!(0, circuit.outputs().len());
+        assert_eq!(1, circuit.outputs().len());
 
         let const_gate_idx = into_gate_idx(0);
         assert_eq!(Gate::Const(value), circuit.gates()[const_gate_idx]);
@@ -263,7 +276,7 @@ mod tests {
 
         assert_eq!(expected_length, circuit.gates().len());
         assert_eq!(0, circuit.inputs().len());
-        assert_eq!(0, circuit.outputs().len());
+        assert_eq!(1, circuit.outputs().len());
 
         for (val_ix, const_idx) in [0, 1, 3, 4].iter().enumerate() {
             let const_gate_idx = into_gate_idx(*const_idx);
