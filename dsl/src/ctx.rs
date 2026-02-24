@@ -69,10 +69,6 @@ impl Context {
             map: HashMap::new(),
         }
     }
-
-    pub fn from_root_to_leaves(&self) -> impl Iterator<Item = (ExprIdx, &Expr)> {
-        self.arena.iter()
-    }
     pub(crate) fn create_set_of_all_indices(&self) -> BitSet {
         let mut set = BitSet::<u32>::new();
 
@@ -81,8 +77,12 @@ impl Context {
         }
         set
     }
+    pub fn from_root_to_leaves(&self) -> impl Iterator<Item = (ExprIdx, &Expr)> {
+        self.arena.iter()
+    }
     /// Eliminates unused edges by operating on operator expressions, also returns the set of
     /// unused ExprIdx.
+    #[cfg(feature = "graphview")]
     pub fn into_edges_and_unused(&self) -> (ThinIntoIter<(u32, u32)>, BitSet<u32>) {
         let mut edges = ThinVec::new();
         let mut unused = self.create_set_of_all_indices();
