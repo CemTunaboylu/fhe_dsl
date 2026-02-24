@@ -60,21 +60,19 @@ impl CircuitCompiler {
         let mut roots = outputs.iter();
         let mut dfs_stack = ThinVec::new();
 
-        // iterative post order traversal
+        let into_expr_idx = |h: &ExprHandle| h.idx;
+
+        let mut current_node = roots.next().map(into_expr_idx);
+
+        // Iterative post order traversal from each output node eliminates all the
+        // unused/unreachable Exprs since it only follows roots of outputs.
         loop {
-            // either we didn't start from a root, or consumed it. Get the next.
-            if dfs_stack.is_empty() {
-                if let Some(expr_handle) = roots.next() {
-                    let expr = expr_handle.get_expr();
-                    let expr_idx = expr_handle.idx;
-                    dfs_stack.push((expr_idx, expr));
-                } else {
-                    break;
-                }
-            } else if let Some((expr_idx, expr)) = dfs_stack.pop() {
-                if self.is_lowered(&expr_idx) {
+            // If we have a node at hand, take it and start lowering.
+            if let Some(current_expr_idx) = current_node.take() {
+                if self.is_lowered(&current_expr_idx) {
                     continue;
                 }
+                let expr = self.context_handle.get(current_expr_idx);
                 let (gate, is_input) = match expr {
                     Expr::Input(index) => {
                         let gate = Gate::Input(index);
@@ -84,34 +82,42 @@ impl CircuitCompiler {
                         let gate = Gate::Const(value);
                         (gate, false)
                     }
-                    // From here, we push the children into the stack to first lower them, (post-order)
-                    // if we haven't already; or we retrieve their gate indices and form the op
-                    // gate.
+                    // Here, if we haven't already, we push children into the stack to first lower them, (post-order)
+                    // or we retrieve their gate indices to form the op gate.
                     Expr::Add(lhs, rhs) | Expr::Sub(lhs, rhs) | Expr::Mul(lhs, rhs) => {
                         let lhs_gate_idx_opt = self.get_lowered(&lhs);
                         let rhs_gate_idx_opt = self.get_lowered(&rhs);
 
-                        // We want to first visit the left child, and then right and then form the
-                        // gate for operation with them. If we have not pushed them already, since
-                        // we popped the element at hand right now, we have to ensure the order in
-                        // the stack [<current op>, <left child>, <right child>]
-                        let mut to_push = ThinVec::new();
+                        // We want the visit order to be lhs, rhs and then parent so that we can form the
+                        // gate for operation with lowered children. If they are not lowered yet when we are at the parent
+                        // (first time while DFSing), we push the parent to the stack again (we popped it from the stack and took the root_node),
+                        // then the unlowered ones, so that we visit them first.
+                        // TLDR: we want to ensure the order in the stack:
+                        // [<current op>, <left child if not lowered>, <right child if not lowered>]
+                        let mut rhs_child_expr_idx = None;
+                        // if the rhs child is not lowered yet, reserve it to push into the stack
                         if rhs_gate_idx_opt.is_none() {
-                            let rhs_expr = self.context_handle.get(rhs);
-                            to_push.push((rhs, rhs_expr));
+                            rhs_child_expr_idx = Some(rhs);
                         }
+                        // if the lhs child is not lowered yet, move root_node to lhs, if rhs is already lowered,
+                        // push the parent on the stack again and continue; or move on to pushing
+                        // rhs and parent in the stack.
                         if lhs_gate_idx_opt.is_none() {
-                            let lhs_expr = self.context_handle.get(lhs);
-                            to_push.push((lhs, lhs_expr));
+                            current_node = Some(lhs);
+                            if rhs_child_expr_idx.is_none() {
+                                dfs_stack.push(current_expr_idx);
+                                continue;
+                            }
                         }
-                        // If we have children to compile to, we reinsert the parent operation
-                        // first, and then add the children to the stack.
-                        if !to_push.is_empty() {
-                            dfs_stack.push((expr_idx, expr));
-                            dfs_stack.extend_from_slice(to_push.as_slice());
+                        // If we rhs child to lower, we reinsert the parent operation
+                        // first, and then add the child to the stack to visit rhs before parent.
+                        if let Some(push) = rhs_child_expr_idx {
+                            dfs_stack.extend_from_slice(&[current_expr_idx, push]);
                             continue;
                         }
 
+                        // At this point, lhs and rhs childen are all lowered, we lower the
+                        // operation with their gate indices.
                         let lhs_gate_idx = lhs_gate_idx_opt.unwrap();
                         let rhs_gate_idx = rhs_gate_idx_opt.unwrap();
                         let gate = if matches!(expr, Expr::Add(_, _)) {
@@ -128,8 +134,24 @@ impl CircuitCompiler {
                 if is_input {
                     self.mark_as_input(gate_idx);
                 }
-                self.pair(expr_idx, gate_idx);
-            } else {
+                self.pair(current_expr_idx, gate_idx);
+            }
+            // If we don't have a node at hand, we first try the stack.
+            // The current_node is already lowered, so we continue consuming the stack.
+            else if current_node.is_none() {
+                current_node = dfs_stack.pop();
+            }
+            // If stack is empty, we consumed all the sub-tree of the current node, thus we
+            // retrieve next if any.
+            else if dfs_stack.is_empty() {
+                if let Some(expr_idx) = roots.next().map(into_expr_idx) {
+                    dfs_stack.push(expr_idx);
+                } else {
+                    break;
+                }
+            }
+            // The stack and roots are consumed, we stop the lowering.
+            else {
                 break;
             }
         }
