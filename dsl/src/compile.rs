@@ -224,6 +224,36 @@ mod tests {
     }
 
     #[test]
+    fn test_single_addition_with_constant_and_input() {
+        let ctx_handle = test_ctx_handle();
+        let value = 9;
+        let index = 0;
+        let constant = ctx_handle.constant(value);
+        let input = ctx_handle.input(index);
+        let out = constant + input;
+
+        let expected_length = 3;
+
+        let circuit = ctx_handle.compile(out);
+
+        assert_eq!(expected_length, circuit.gates().len());
+        assert_eq!(1, circuit.inputs().len());
+        assert_eq!(1, circuit.outputs().len());
+
+        let const_gate_idx = into_gate_idx(0);
+        assert_eq!(Gate::Const(value), circuit.gates()[const_gate_idx]);
+
+        let input_gate_idx = into_gate_idx(1);
+        assert_eq!(Gate::Input(index), circuit.gates()[input_gate_idx]);
+
+        let add_gate_idx = into_gate_idx(2);
+        assert_eq!(
+            Gate::BinOp(BinOp::Add, const_gate_idx, input_gate_idx),
+            circuit.gates()[add_gate_idx]
+        );
+    }
+
+    #[test]
     fn test_same_double_addition_and_multiplication() {
         let ctx_handle = test_ctx_handle();
         let value = 9;
