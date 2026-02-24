@@ -179,8 +179,6 @@ mod tests {
 
             let ctx_handle = test_ctx_handle();
             let value = 9;
-            let constant_1 = ctx_handle.constant(value);
-            let constant_2 = ctx_handle.constant(value);
 
             for mode in [Mode::Move, Mode::Borrow, Mode::BorrowMut] {
                 let constant_1 = ctx_handle.constant(value);
@@ -205,12 +203,11 @@ mod tests {
 
             let ctx_handle = test_ctx_handle();
             let value = 9;
-            let constant_1 = ctx_handle.constant(value);
-            let constant_2 = ctx_handle.constant(value);
 
             // Agnostic to the operands mode (move, borrowed), if operation is the same and the
             // values of operands are the same, it will be re-used.
-            let expected_arena_length = ctx_handle.0.borrow().arena.len() + 1;
+            // + 1 for the operation at hand, +1 for the constants (identical thus won't allcoate)
+            let expected_arena_length = ctx_handle.0.borrow().arena.len() + 2;
             for mode in [Mode::Move, Mode::Borrow, Mode::BorrowMut] {
                 let constant_1 = ctx_handle.constant(value);
                 let constant_2 = ctx_handle.constant(value);

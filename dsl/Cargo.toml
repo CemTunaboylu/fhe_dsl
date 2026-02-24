@@ -8,6 +8,5 @@ bit-set.workspace = true
 la-arena.workspace= true
 thin-vec.workspace = true
 
-
 [dev-dependencies]
 parameterized_test = "0.2.1"
