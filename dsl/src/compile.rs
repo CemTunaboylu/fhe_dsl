@@ -347,13 +347,13 @@ mod tests {
         let ctx_handle = test_ctx_handle();
 
         let values = [1, 2, 3, 4];
-        let constant_1 = ctx_handle.constant(values[0]);
-        let constant_2 = ctx_handle.constant(values[1]);
-        let addition_1 = constant_1 + constant_2;
+        let input_1 = ctx_handle.input(values[0] as usize);
+        let constant_1 = ctx_handle.constant(values[1]);
+        let addition_1 = input_1 + constant_1;
 
-        let constant_3 = ctx_handle.constant(values[2]);
-        let constant_4 = ctx_handle.constant(values[3]);
-        let addition_2 = constant_3 + constant_4;
+        let input_2 = ctx_handle.input(values[2] as usize);
+        let constant_2 = ctx_handle.constant(values[3]);
+        let addition_2 = input_2 + constant_2;
         let out = &addition_1 * &addition_2;
 
         let expected_length = 7;
@@ -361,29 +361,35 @@ mod tests {
         let circuit = ctx_handle.compile(out).expect("to compile");
 
         assert_eq!(expected_length, circuit.gates().len());
-        assert_eq!(0, circuit.inputs().len());
+        assert_eq!(2, circuit.inputs().len());
         assert_eq!(1, circuit.outputs().len());
 
         for (val_ix, const_idx) in [0, 1, 3, 4].iter().enumerate() {
-            let const_gate_idx = into_gate_idx(*const_idx);
-            assert_eq!(Gate::Const(values[val_ix]), circuit.gates()[const_gate_idx]);
+            let gate_idx = into_gate_idx(*const_idx);
+            let expected_expr = match val_ix % 2 {
+                // input
+                0 => Gate::Input(values[val_ix] as usize),
+                // const
+                _ => Gate::Const(values[val_ix]),
+            };
+            assert_eq!(expected_expr, circuit.gates()[gate_idx]);
         }
 
         let add_gate_idx = into_gate_idx(2);
-        let const_1_gate_idx = into_gate_idx(0);
-        let const_2_gate_idx = into_gate_idx(1);
+        let input_1_gate_idx = into_gate_idx(0);
+        let const_1_gate_idx = into_gate_idx(1);
 
         assert_eq!(
-            Gate::BinOp(BinOp::Add, const_1_gate_idx, const_2_gate_idx),
+            Gate::BinOp(BinOp::Add, input_1_gate_idx, const_1_gate_idx),
             circuit.gates()[add_gate_idx]
         );
 
         let add_gate_idx_2 = into_gate_idx(5);
-        let const_3_gate_idx = into_gate_idx(3);
-        let const_4_gate_idx = into_gate_idx(4);
+        let input_2_gate_idx = into_gate_idx(3);
+        let const_2_gate_idx = into_gate_idx(4);
 
         assert_eq!(
-            Gate::BinOp(BinOp::Add, const_3_gate_idx, const_4_gate_idx),
+            Gate::BinOp(BinOp::Add, input_2_gate_idx, const_2_gate_idx),
             circuit.gates()[add_gate_idx_2]
         );
 
