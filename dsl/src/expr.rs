@@ -163,12 +163,14 @@ mod tests {
         (op), {
 
             let ctx_handle = test_ctx_handle();
+            let index = 0;
             let value = 9;
 
+            let input = ctx_handle.input(index);
+            let constant = ctx_handle.constant(value);
+
             for mode in [Mode::Move, Mode::Borrow, Mode::BorrowMut] {
-                let constant_1 = ctx_handle.constant(value);
-                let constant_2 = ctx_handle.constant(value);
-                let (expr_handle, expectation) = perform_op_with_expectation_mode(op.clone(), constant_1, constant_2, mode);
+                let (expr_handle, expectation) = perform_op_with_expectation_mode(op.clone(), input.clone(), constant.clone(), mode);
 
                 let inserted_expr = ctx_handle.get(expr_handle.idx);
                 assert_eq!(inserted_expr, expectation);
