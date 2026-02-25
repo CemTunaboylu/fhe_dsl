@@ -254,14 +254,17 @@ mod tests {
     }
 
     #[test]
-    fn test_single_addition_with_same_constants_strict() {
-        let ctx_handle = test_ctx_handle();
+    fn test_single_addition_with_same_constants_loose_also_folds() {
+        let ctx_handle = test_loose_ctx_handle();
         let value = 9;
         let constant_1 = ctx_handle.constant(value);
         let constant_2 = ctx_handle.constant(value);
         let out = constant_1 + constant_2;
 
-        let expected_length = 2;
+        let expected = value * 2 % ctx_handle.0.borrow().q;
+
+        // (Add, lhs_constant, rhs_constant) -> will fold to Const(lhs_constant + rhs_constant)
+        let expected_length = 1;
 
         let circuit = ctx_handle.compile(out).expect("to compile");
 
@@ -270,13 +273,27 @@ mod tests {
         assert_eq!(1, circuit.outputs().len());
 
         let const_gate_idx = into_gate_idx(0);
-        assert_eq!(Gate::Const(value), circuit.gates()[const_gate_idx]);
+        assert_eq!(Gate::Const(expected), circuit.gates()[const_gate_idx]);
+    }
 
-        let add_gate_idx = into_gate_idx(1);
-        assert_eq!(
-            Gate::BinOp(BinOp::Add, const_gate_idx, const_gate_idx),
-            circuit.gates()[add_gate_idx]
-        );
+    #[test]
+    fn test_single_addition_with_same_constants_strict_also_folds() {
+        let ctx_handle = test_ctx_handle();
+        let value = 9;
+        let constant_1 = ctx_handle.constant(value);
+        let constant_2 = ctx_handle.constant(value);
+        let out = constant_1 + constant_2;
+
+        // (Add, lhs_constant, rhs_constant) -> will fold to Const(lhs_constant + rhs_constant)
+        // but lhs_constant and rhs_constant will be left behind as orphans thus will fail strict
+        // compilation.
+        let error = ctx_handle
+            .compile(out)
+            .expect_err("to fail compilation due to orphan const");
+
+        assert!(error.unused_inputs.is_empty());
+        assert_eq!(1, error.unused_constants.len());
+        assert!(error.unused_operations.is_empty());
     }
 
     #[test]
