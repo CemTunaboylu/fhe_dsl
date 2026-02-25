@@ -10,22 +10,19 @@ pub trait Internable: Clone + Eq + Hash + PartialEq {}
 /// Given an arbitrary hashable node, if it already exists, instead of forming the new, returns the old.
 pub struct Interner<I: Internable> {
     map: FxHashMap<I, Idx<I>>,
-    pub arena: Arena<I>,
 }
 
 impl<I: Internable> Interner<I> {
     pub fn new() -> Self {
-        let arena = Arena::<I>::new();
         Self {
             map: HashMap::<I, Idx<I>, FxBuildHasher>::with_hasher(FxBuildHasher::default()),
-            arena,
         }
     }
-    pub fn intern(&mut self, key: I) -> Idx<I> {
+    pub fn intern(&mut self, key: I, arena: &mut Arena<I>) -> Idx<I> {
         if let Some(idx) = self.get(&key) {
             return *idx;
         }
-        let idx = self.arena.alloc(key.clone());
+        let idx = arena.alloc(key.clone());
         self.add(key, idx);
         idx
     }

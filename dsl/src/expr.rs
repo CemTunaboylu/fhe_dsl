@@ -74,13 +74,15 @@ mod tests {
         assert_eq!(inserted_expr, Expr::Const(value));
     }
 
+    fn get_arena_len(context_handle: &ContextHandle) -> usize {
+        context_handle.0.borrow().arena.len()
+    }
+
     #[test]
     fn test_hash_consing_for_constants_and_inputs() {
         let ctx_handle = test_ctx_handle();
         let constant_value = 9;
         let constant = ctx_handle.constant(constant_value);
-
-        let get_arena_len = |ch: &ContextHandle| ch.0.borrow().interner.arena.len();
 
         let expected_length_for_constant = get_arena_len(&ctx_handle);
         assert_eq!(index_to_u32(constant.idx), 0);
@@ -200,7 +202,7 @@ mod tests {
             // Agnostic to the operands mode (move, borrowed), if operation is the same and the
             // values of operands are the same, it will be re-used.
             // + 1 for the operation at hand, +1 for the constants (identical thus won't allcoate)
-            let expected_arena_length = ctx_handle.0.borrow().interner.arena.len() + 2;
+            let expected_arena_length = get_arena_len(&ctx_handle) + 2;
             for mode in [Mode::Move, Mode::Borrow, Mode::BorrowMut] {
                 let constant_1 = ctx_handle.constant(value);
                 let constant_2 = ctx_handle.constant(value);
@@ -208,7 +210,7 @@ mod tests {
                 let (same_expr_handle, expectation) = perform_op_with_expectation_mode(op.clone(), constant_1, constant_2, mode);
 
                 assert_eq!(expr_handle.idx, same_expr_handle.idx);
-                let current_arena_length = ctx_handle.0.borrow().interner.arena.len();
+                let current_arena_length = get_arena_len(&ctx_handle);
                 assert_eq!(expected_arena_length, current_arena_length);
             }
         }

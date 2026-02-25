@@ -4,6 +4,7 @@ use crate::{
 };
 
 use bit_set::BitSet;
+use la_arena::Arena;
 use passes::interner::Interner;
 use thin_vec::{IntoIter as ThinIntoIter, ThinVec};
 
@@ -17,7 +18,7 @@ pub struct ContextHandle(pub Rc<ContextRef>);
 impl ContextHandle {
     pub fn get(&self, ix: ExprIdx) -> Expr {
         let ctx_ref = self.0.borrow();
-        ctx_ref.interner.arena[ix]
+        ctx_ref.arena[ix]
     }
     pub(crate) fn expr_handle_for(&self, expr: Expr) -> ExprHandle {
         let expr_idx = self.append(expr);
@@ -35,7 +36,8 @@ impl ContextHandle {
         self.expr_handle_for(kind)
     }
     pub(crate) fn append(&self, expr: Expr) -> ExprIdx {
-        self.0.borrow_mut().interner.intern(expr)
+        let mut ctx_ref = self.0.borrow_mut();
+        ctx_ref.append(expr)
     }
 }
 
@@ -50,22 +52,32 @@ pub enum CompilationMode {
 pub struct Context {
     pub(crate) q: SupportedType,
     pub(crate) mode: CompilationMode,
+    pub(crate) arena: Arena<Expr>,
     pub(crate) interner: Interner<Expr>,
 }
 
 impl Context {
     pub(crate) fn new(q: SupportedType, mode: CompilationMode) -> Self {
+        let arena = Arena::new();
         let interner = Interner::new();
-        Self { q, mode, interner }
+        Self {
+            q,
+            mode,
+            arena,
+            interner,
+        }
     }
     pub(crate) fn create_set_of_all_indices(&self) -> BitSet {
         let mut set = BitSet::<u32>::new();
 
-        let len = self.interner.arena.len();
+        let len = self.arena.len();
         for i in 0..len {
             set.insert(i);
         }
         set
+    }
+    pub fn append(&mut self, expr: Expr) -> ExprIdx {
+        self.interner.intern(expr, &mut self.arena)
     }
     /// Eliminates unused edges by operating on operator expressions, also returns the set of
     /// unused ExprIdx.
@@ -74,8 +86,7 @@ impl Context {
         let mut edges = ThinVec::new();
         let mut unused = self.create_set_of_all_indices();
 
-        let arena = &self.interner.arena;
-        for (expr_idx, expr) in arena.iter() {
+        for (expr_idx, expr) in self.arena.iter() {
             let expr_u32 = expr_idx.into_raw().into_u32();
             unused.remove(expr_u32 as usize);
             match expr {
