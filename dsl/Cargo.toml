@@ -12,6 +12,7 @@ op = {path = "../op"}
 passes = {path = "../passes"}
 
 bit-set.workspace = true
+enum-iterator.workspace = true
 fxhash.workspace = true
 la-arena.workspace= true
 thin-vec.workspace = true

@@ -1,3 +1,4 @@
+use enum_iterator::all;
 use ir::{
     SupportedType,
     circuit::Circuit,
@@ -11,7 +12,8 @@ use thin_vec::ThinVec;
 use std::collections::HashMap;
 
 use crate::{
-    ctx::{CompilationMode, ContextHandle},
+    compilation_mode::{CompilationMode, Strictness, StrictnessOn},
+    ctx::ContextHandle,
     expr::{Expr, ExprHandle, ExprIdx},
 };
 
@@ -68,6 +70,7 @@ impl CircuitCompiler {
         let mut unused_constants = ThinVec::new();
         let mut unused_operations = ThinVec::new();
 
+        // Accumulate all unused with their respective variants to report wholistically at once.
         for idx in unused.iter() {
             let expr_idx = Idx::from_raw(RawIdx::from_u32(idx as u32));
             let expr = self.context_handle.get(expr_idx);
@@ -76,8 +79,28 @@ impl CircuitCompiler {
                 Expr::Const(_) => &mut unused_constants,
                 Expr::BinOp(_, _, _) => &mut unused_operations,
             };
-
             to_push_in.push(expr);
+        }
+
+        let strictness_mode: Strictness = Strictness::from(&ctx.mode);
+        let mut fucked_it_up = false;
+
+        for strictness_on in all::<StrictnessOn>() {
+            let strict: Strictness = (&strictness_on).into();
+            let is_strict = &strictness_mode & &strict;
+            if !is_strict {
+                continue;
+            }
+            fucked_it_up = match strictness_on {
+                StrictnessOn::Input if !unused_inputs.is_empty() => true,
+                StrictnessOn::Const if !unused_constants.is_empty() => true,
+                StrictnessOn::Op if !unused_operations.is_empty() => true,
+                _ => continue,
+            };
+            break;
+        }
+        if !fucked_it_up {
+            return Ok(());
         }
 
         Err(CompilationError {
@@ -237,7 +260,10 @@ mod tests {
     use la_arena::RawIdx;
     use op::BinOp;
 
-    use crate::{ctx::CompilationMode, new_loose_context, new_strict_context};
+    use crate::{
+        compilation_mode::CompilationMode, new_folding_strict_context, new_loose_context,
+        new_strict_context,
+    };
 
     use super::*;
 
@@ -247,6 +273,10 @@ mod tests {
 
     fn test_loose_ctx_handle() -> ContextHandle {
         new_loose_context(5)
+    }
+
+    fn test_folding_ctx_handle() -> ContextHandle {
+        new_folding_strict_context(11)
     }
 
     fn into_gate_idx(idx: u32) -> GateIdx {
@@ -296,6 +326,29 @@ mod tests {
         assert!(error.unused_operations.is_empty());
     }
 
+    #[test]
+    fn test_single_addition_with_same_constants_folding_strict_folds_leaves_orphan_behind() {
+        let ctx_handle = test_folding_ctx_handle();
+        let value = 9;
+        let constant_1 = ctx_handle.constant(value);
+        let constant_2 = ctx_handle.constant(value);
+        let out = constant_1 + constant_2;
+
+        let expected = value * 2 % ctx_handle.0.borrow().q;
+
+        // (Add, lhs_constant, rhs_constant) -> will fold to Const(lhs_constant + rhs_constant)
+        let expected_length = 1;
+
+        // This time tough, it will compile because of Strictness flags allow orphan constants
+        let circuit = ctx_handle.compile(out).expect("to compile");
+
+        assert_eq!(expected_length, circuit.gates().len());
+        assert_eq!(0, circuit.inputs().len());
+        assert_eq!(1, circuit.outputs().len());
+
+        let const_gate_idx = into_gate_idx(0);
+        assert_eq!(Gate::Const(expected), circuit.gates()[const_gate_idx]);
+    }
     #[test]
     fn test_single_addition_with_constant_and_input_strict() {
         let ctx_handle = test_ctx_handle();
@@ -422,7 +475,7 @@ mod tests {
     }
 
     fn moded_ctx(mode: CompilationMode) -> ContextHandle {
-        if matches!(mode, CompilationMode::Strict) {
+        if matches!(mode, CompilationMode::StrictAll) {
             test_ctx_handle()
         } else {
             test_loose_ctx_handle()
@@ -454,7 +507,7 @@ mod tests {
         }
     }
 
-    const STRICT: CompilationMode = CompilationMode::Strict;
+    const STRICT: CompilationMode = CompilationMode::StrictAll;
     const LOOSE: CompilationMode = CompilationMode::Loose;
 
     const ERRS: bool = true;

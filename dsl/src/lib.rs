@@ -1,8 +1,12 @@
 use std::{cell::RefCell, rc::Rc};
 
-use crate::ctx::{CompilationMode, Context, ContextHandle};
+use crate::{
+    compilation_mode::*,
+    ctx::{Context, ContextHandle},
+};
 
 pub mod add;
+pub mod compilation_mode;
 pub mod compile;
 pub mod ctx;
 pub mod expr;
@@ -13,8 +17,17 @@ pub mod sub;
 
 pub type SupportedType = u64;
 
+pub fn new_folding_strict_context(q: SupportedType) -> ContextHandle {
+    let strictness: Strictness = [StrictnessOn::Input, StrictnessOn::Op].as_slice().into();
+    let mode = CompilationMode::with(strictness);
+    let ctx = Context::new(q, mode);
+    let ref_cell = RefCell::new(ctx);
+    let rc = Rc::new(ref_cell);
+    ContextHandle(rc)
+}
+
 pub fn new_strict_context(q: SupportedType) -> ContextHandle {
-    let mode = CompilationMode::Strict;
+    let mode = CompilationMode::StrictAll;
     let ctx = Context::new(q, mode);
     let ref_cell = RefCell::new(ctx);
     let rc = Rc::new(ref_cell);

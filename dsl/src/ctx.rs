@@ -1,6 +1,8 @@
 use crate::{
     SupportedType,
+    compilation_mode::CompilationMode,
     expr::{Expr, ExprHandle, ExprIdx},
+    folding::fold,
 };
 
 use bit_set::BitSet;
@@ -41,13 +43,6 @@ impl ContextHandle {
     }
 }
 
-#[derive(Clone, Debug, Default)]
-pub enum CompilationMode {
-    Loose,
-    #[default]
-    Strict,
-}
-
 #[derive(Clone, Debug)]
 pub struct Context {
     pub(crate) q: SupportedType,
@@ -76,7 +71,8 @@ impl Context {
         }
         set
     }
-    pub fn append(&mut self, expr: Expr) -> ExprIdx {
+    pub fn append(&mut self, mut expr: Expr) -> ExprIdx {
+        expr = fold(expr, &mut self.arena, self.q);
         self.interner.intern(expr, &mut self.arena)
     }
     /// Eliminates unused edges by operating on operator expressions, also returns the set of
