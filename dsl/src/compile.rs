@@ -312,30 +312,34 @@ mod tests {
     #[test]
     fn test_same_double_addition_and_multiplication_strict() {
         let ctx_handle = test_ctx_handle();
+        let index = 0;
         let value = 9;
-        let constant_1 = ctx_handle.constant(value);
-        let constant_2 = ctx_handle.constant(value);
-        let addition = constant_1 + constant_2;
+        let input = ctx_handle.input(index);
+        let constant = ctx_handle.constant(value);
+        let addition = input + constant;
         let out = &addition * &addition;
 
-        let expected_length = 3;
+        let expected_length = 4;
 
         let circuit = ctx_handle.compile(out).expect("to compile");
 
         assert_eq!(expected_length, circuit.gates().len());
-        assert_eq!(0, circuit.inputs().len());
+        assert_eq!(1, circuit.inputs().len());
         assert_eq!(1, circuit.outputs().len());
 
-        let const_gate_idx = into_gate_idx(0);
+        let input_gate_idx = into_gate_idx(0);
+        assert_eq!(Gate::Input(index), circuit.gates()[input_gate_idx]);
+
+        let const_gate_idx = into_gate_idx(1);
         assert_eq!(Gate::Const(value), circuit.gates()[const_gate_idx]);
 
-        let add_gate_idx = into_gate_idx(1);
+        let add_gate_idx = into_gate_idx(2);
         assert_eq!(
-            Gate::BinOp(BinOp::Add, const_gate_idx, const_gate_idx),
+            Gate::BinOp(BinOp::Add, input_gate_idx, const_gate_idx),
             circuit.gates()[add_gate_idx]
         );
 
-        let mul_gate_idx = into_gate_idx(2);
+        let mul_gate_idx = into_gate_idx(3);
         assert_eq!(
             Gate::BinOp(BinOp::Mul, add_gate_idx, add_gate_idx),
             circuit.gates()[mul_gate_idx]
