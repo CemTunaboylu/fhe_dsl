@@ -187,17 +187,19 @@ mod tests {
         (op), {
 
             let ctx_handle = test_ctx_handle();
+            let index = 0;
             let value = 9;
 
             // Agnostic to the operands mode (move, borrowed), if operation is the same and the
             // values of operands are the same, it will be re-used.
-            // + 1 for the operation at hand, +1 for the constants (identical thus won't allcoate)
-            let expected_arena_length = get_arena_len(&ctx_handle) + 2;
+            // + 1 for the operation at hand, +1 for the input and +1 for the  constant
+            let expected_arena_length = get_arena_len(&ctx_handle) + 3;
+            let input = ctx_handle.input(index);
+            let constant = ctx_handle.constant(value);
+
             for mode in [Mode::Move, Mode::Borrow, Mode::BorrowMut] {
-                let constant_1 = ctx_handle.constant(value);
-                let constant_2 = ctx_handle.constant(value);
-                let (expr_handle, expectation) = perform_op_with_expectation_mode(op.clone(), constant_1.clone(), constant_2.clone(), mode.clone());
-                let (same_expr_handle, expectation) = perform_op_with_expectation_mode(op.clone(), constant_1, constant_2, mode);
+                let (expr_handle, expectation) = perform_op_with_expectation_mode(op.clone(), input.clone(), constant.clone(), mode.clone());
+                let (same_expr_handle, expectation) = perform_op_with_expectation_mode(op.clone(), input.clone(), constant.clone(), mode);
 
                 assert_eq!(expr_handle.idx, same_expr_handle.idx);
                 let current_arena_length = get_arena_len(&ctx_handle);
