@@ -110,31 +110,21 @@ mod tests {
         BorrowMut,
     }
 
-    fn add<O: Add>(e_1: O, e_2: O) -> O::Output {
-        e_1 + e_2
-    }
-    fn sub<O: Sub>(e_1: O, e_2: O) -> O::Output {
-        e_1 - e_2
-    }
-    fn mul<O: Mul>(e_1: O, e_2: O) -> O::Output {
-        e_1 * e_2
-    }
-
     fn perform_op_with_expectation<O>(op: BinOp, operand_1: O, operand_2: O) -> (ExprHandle, BinOp)
     where
         O: Add<Output = ExprHandle> + Sub<Output = ExprHandle> + Mul<Output = ExprHandle>,
     {
         match op {
             BinOp::Add => {
-                let result = add(operand_1, operand_2);
+                let result = operand_1 + operand_2;
                 (result, BinOp::Add)
             }
             BinOp::Sub => {
-                let result = sub(operand_1, operand_2);
+                let result = operand_1 - operand_2;
                 (result, BinOp::Sub)
             }
             BinOp::Mul => {
-                let result = mul(operand_1, operand_2);
+                let result = operand_1 * operand_2;
                 (result, BinOp::Mul)
             }
         }
