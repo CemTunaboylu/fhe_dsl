@@ -447,9 +447,10 @@ mod tests {
     #[allow(unused)]
     fn unused_constant(ctx_handle: ContextHandle) -> ThinVec<ExprHandle> {
         let unused_constant = ctx_handle.constant(0);
+        let input = ctx_handle.input(0);
         let constant = ctx_handle.constant(1);
 
-        let out = &constant + &constant;
+        let out = &input + &constant;
         thin_vec![out]
     }
 
