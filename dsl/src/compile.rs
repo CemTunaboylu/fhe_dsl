@@ -417,6 +417,43 @@ mod tests {
     }
 
     #[test]
+    fn test_large_number_of_constants_and_ops_with_them_yields_single_gate() {
+        let ctx_handle = test_folding_ctx_handle();
+        let total = 100;
+        let mut constants = ThinVec::with_capacity(total);
+        for value in 1..=total {
+            let constant = ctx_handle.constant(value as SupportedType);
+            constants.push(constant);
+        }
+
+        let mut additions = ThinVec::with_capacity(total - 1);
+
+        for index in 1..total {
+            let constant_1 = &constants[index - 1];
+            let constant_2 = &constants[index];
+            let addition = constant_1 + constant_2;
+            additions.push(addition);
+        }
+
+        let all_multiplied = additions
+            .iter()
+            .map(Clone::clone)
+            .reduce(|acc, e| acc * e)
+            .expect("all to be multiplied");
+
+        let expected_length = 1;
+
+        let circuit = ctx_handle.compile(all_multiplied).expect("to compile");
+
+        assert_eq!(expected_length, circuit.gates().len());
+        assert_eq!(0, circuit.inputs().len());
+        assert_eq!(1, circuit.outputs().len());
+
+        let const_gate_idx = into_gate_idx(0);
+        assert_eq!(Gate::Const(0), circuit.gates()[const_gate_idx]);
+    }
+
+    #[test]
     fn test_different_double_addition_and_multiplication_strict() {
         let ctx_handle = test_ctx_handle();
 
