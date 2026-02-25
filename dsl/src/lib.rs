@@ -6,6 +6,7 @@ pub mod add;
 pub mod compile;
 pub mod ctx;
 pub mod expr;
+pub mod folding;
 pub mod hash;
 pub mod mul;
 pub mod sub;
