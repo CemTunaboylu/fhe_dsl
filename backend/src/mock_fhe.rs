@@ -97,6 +97,14 @@ impl Backend for MockFHEBackend {
             ..Default::default()
         }
     }
+
+    fn input(&mut self, c: SupportedType) -> Self::Elem {
+        FHEElement {
+            value: c % self.q,
+            noise: ENC_NOISE,
+            ..Default::default()
+        }
+    }
     // TODO: Introduce a cache to avoid evaluating the same circuit twice.
     // NOTE: eval currently acts as the inputs are given plaintext, thus the mock fhe backend
     // pseudo-encrypts them with elements having a noise.
@@ -113,13 +121,11 @@ impl Backend for MockFHEBackend {
         self.q = circuit.q;
         let mut results: ThinVec<Self::Elem> =
             thin_vec![Self::Elem::default(); circuit.gates().len()];
-        let q = self.q;
-        let modulo = |val| val % q;
         // One-to-one mapping between gate and elements, thus the same indices.
         for (ix, (_, gate)) in circuit.gates().iter().enumerate() {
-            let (mut value, depth, noise) = match gate {
-                Gate::Input(index) => (with[*index], 0, ENC_NOISE),
-                Gate::Const(constant) => (*constant, 0, 0),
+            let element = match gate {
+                Gate::Input(index) => self.input(with[*index]),
+                Gate::Const(constant) => self.constant(*constant),
                 Gate::BinOp(bin_op, lhs, rhs) => {
                     let lhs_result_index = lhs.into_raw().into_u32();
                     let rhs_result_index = rhs.into_raw().into_u32();
@@ -127,21 +133,12 @@ impl Backend for MockFHEBackend {
                     let lhs_result = &results[lhs_result_index as usize];
                     let rhs_result = &results[rhs_result_index as usize];
 
-                    let element = match bin_op {
+                    match bin_op {
                         BinOp::Add => self.add(lhs_result, rhs_result),
                         BinOp::Sub => self.sub(lhs_result, rhs_result),
                         BinOp::Mul => self.mul(lhs_result, rhs_result),
-                    };
-                    self.noise.update(element.noise, ix)?;
-                    results[ix] = element;
-                    continue;
+                    }
                 }
-            };
-            value = modulo(value);
-            let element = Self::Elem {
-                value,
-                depth,
-                noise,
             };
             self.noise.update(element.noise, ix)?;
             results[ix] = element;

@@ -29,6 +29,9 @@ impl Backend for PlainModQBackend {
     fn mul(&mut self, lhs: &Self::Elem, rhs: &Self::Elem) -> Self::Elem {
         self.constant(lhs * rhs)
     }
+    fn input(&mut self, c: SupportedType) -> Self::Elem {
+        c % self.q
+    }
     fn constant(&mut self, c: SupportedType) -> Self::Elem {
         c % self.q
     }
@@ -50,8 +53,8 @@ impl Backend for PlainModQBackend {
         // One-to-one mapping between gate and elements, thus the same indices.
         for (ix, (_, gate)) in circuit.gates().iter().enumerate() {
             let element = match gate {
-                Gate::Input(index) => with[*index],
-                Gate::Const(value) => *value,
+                Gate::Input(index) => self.input(with[*index]),
+                Gate::Const(value) => self.constant(*value),
                 Gate::BinOp(bin_op, lhs, rhs) => {
                     let lhs_result_index = lhs.into_raw().into_u32();
                     let rhs_result_index = rhs.into_raw().into_u32();
@@ -66,7 +69,7 @@ impl Backend for PlainModQBackend {
                     }
                 }
             };
-            results[ix] = self.constant(element);
+            results[ix] = element;
         }
 
         BackendResult::Ok(results)

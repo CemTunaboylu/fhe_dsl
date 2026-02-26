@@ -15,6 +15,7 @@ pub trait Backend {
     fn add(&mut self, lhs: &Self::Elem, rhs: &Self::Elem) -> Self::Elem;
     fn sub(&mut self, lhs: &Self::Elem, rhs: &Self::Elem) -> Self::Elem;
     fn mul(&mut self, lhs: &Self::Elem, rhs: &Self::Elem) -> Self::Elem;
+    fn input(&mut self, c: SupportedType) -> Self::Elem;
     fn constant(&mut self, c: SupportedType) -> Self::Elem;
     fn eval(
         &mut self,
