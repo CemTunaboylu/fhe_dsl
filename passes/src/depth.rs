@@ -10,24 +10,24 @@ use thin_vec::{ThinVec, thin_vec};
 /*
 * For multiplicative depth:
     -	depth[input/const] = 0
-    -	depth[add/sub] = 0
+    -	depth[add/sub] = max(depth[lhs], depth[rhs])
     -	depth[mul] = max(depth[a], depth[b]) + 1
 * For total depth:
     -	depth[input/const] = 1
     -	depth[add/sub] = max(depth[a], depth[b])
     -	depth[mul] = max(depth[a], depth[b])
 */
-
+#[derive(Clone, Debug)]
 pub struct DepthAnalysis {
-    mul: ThinVec<usize>,
-    total: ThinVec<usize>,
+    pub mul: ThinVec<usize>,
+    pub gate: ThinVec<usize>,
 }
 
-trait Counter {
+pub trait Counter {
     fn count(gate: &Gate) -> usize;
 }
 
-struct MulCounter;
+pub struct MulCounter;
 
 impl Counter for MulCounter {
     fn count(gate: &Gate) -> usize {
@@ -39,15 +39,19 @@ impl Counter for MulCounter {
     }
 }
 
-struct TotalDepthCounter;
+pub struct TotalGateDepthCounter;
 
-impl Counter for TotalDepthCounter {
-    fn count(_gate: &Gate) -> usize {
-        1
+impl Counter for TotalGateDepthCounter {
+    fn count(gate: &Gate) -> usize {
+        if matches!(gate, Gate::Input(_) | Gate::Const(_)) {
+            0
+        } else {
+            1
+        }
     }
 }
 
-fn get_depth<C, T>(circuit: &Circuit, of: GateIdx) -> (usize, usize)
+pub fn get_depth<C, T>(circuit: &Circuit, of: GateIdx) -> (usize, usize)
 where
     C: Counter,
     T: Counter,
@@ -74,14 +78,15 @@ pub fn depth_analysis_of(circuit: &Circuit) -> DepthAnalysis {
     let mut total_depths = thin_vec![0; num_outputs];
 
     for (ix, out) in circuit.outputs().iter().enumerate() {
-        let (mul_depth, total_depth) = get_depth::<MulCounter, TotalDepthCounter>(circuit, *out);
+        let (mul_depth, total_depth) =
+            get_depth::<MulCounter, TotalGateDepthCounter>(circuit, *out);
         mul_depths[ix] = mul_depth;
         total_depths[ix] = total_depth;
     }
 
     DepthAnalysis {
         mul: mul_depths,
-        total: total_depths,
+        gate: total_depths,
     }
 }
 
@@ -115,7 +120,7 @@ mod tests {
         );
 
         let depth_analysis = depth_analysis_of(&circuit);
-        assert_eq!(thin_vec![3], depth_analysis.total);
+        assert_eq!(thin_vec![2], depth_analysis.gate);
         assert_eq!(1, depth_analysis.mul.len());
         assert_eq!(2, depth_analysis.mul[0]);
     }
@@ -125,7 +130,7 @@ mod tests {
         let gates = thin_vec![
             Gate::Input(0),
             Gate::Input(1),
-            Gate::BinOp(BinOp::Mul, into_gate_idx(0), into_gate_idx(1)),
+            Gate::BinOp(BinOp::Add, into_gate_idx(0), into_gate_idx(1)),
             Gate::BinOp(BinOp::Mul, into_gate_idx(2), into_gate_idx(2)),
             Gate::BinOp(BinOp::Mul, into_gate_idx(3), into_gate_idx(3)),
             Gate::BinOp(BinOp::Mul, into_gate_idx(2), into_gate_idx(3))
@@ -142,7 +147,7 @@ mod tests {
         );
 
         let depth_analysis = depth_analysis_of(&circuit);
-        assert_eq!(thin_vec![3, 4, 4], depth_analysis.total);
-        assert_eq!(thin_vec![2, 3, 3], depth_analysis.mul);
+        assert_eq!(thin_vec![2, 3, 3], depth_analysis.gate);
+        assert_eq!(thin_vec![1, 2, 2], depth_analysis.mul);
     }
 }
