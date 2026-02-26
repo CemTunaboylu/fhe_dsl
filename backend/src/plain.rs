@@ -21,13 +21,13 @@ impl Backend for PlainModQBackend {
     type Elem = SupportedType;
 
     fn add(&mut self, lhs: &Self::Elem, rhs: &Self::Elem) -> Self::Elem {
-        (lhs + rhs) % self.q
+        self.constant(lhs + rhs)
     }
     fn sub(&mut self, lhs: &Self::Elem, rhs: &Self::Elem) -> Self::Elem {
-        (lhs - rhs) % self.q
+        self.constant(lhs - rhs)
     }
     fn mul(&mut self, lhs: &Self::Elem, rhs: &Self::Elem) -> Self::Elem {
-        (lhs * rhs) % self.q
+        self.constant(lhs * rhs)
     }
     fn constant(&mut self, c: SupportedType) -> Self::Elem {
         c % self.q
@@ -66,7 +66,7 @@ impl Backend for PlainModQBackend {
                     }
                 }
             };
-            results[ix] = element;
+            results[ix] = self.constant(element);
         }
 
         BackendResult::Ok(results)

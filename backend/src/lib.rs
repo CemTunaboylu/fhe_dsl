@@ -4,6 +4,7 @@ use thin_vec::ThinVec;
 use error::BackendError;
 
 pub mod error;
+pub mod mock_fhe;
 pub mod plain;
 
 pub type BackendResult<T> = Result<T, BackendError>;
