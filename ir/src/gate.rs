@@ -10,10 +10,7 @@ pub type GateIdx = Idx<Gate>;
 pub enum Gate {
     Input(usize),
     Const(SupportedType),
+    // NOTE: We preserve BinOp::Sub and not canonicalize it to (Add, lhs, (Mul, rhs, -1)) because
+    // it will potentially increase multiplicative depth.
     BinOp(BinOp, GateIdx, GateIdx),
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct GateHandle {
-    idx: GateIdx,
 }
