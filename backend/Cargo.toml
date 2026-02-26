@@ -7,5 +7,6 @@ edition = "2024"
 op = {path = "../op"}
 ir = {path = "../ir"}
 
+fxhash.workspace = true
 thin-vec.workspace = true
 la-arena.workspace = true
