@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["dsl", "ir", "op", "passes"]
+members = ["backend","dsl", "ir", "op", "passes"]
 
 [workspace.dependencies]
 bit-set = "0.8.0"

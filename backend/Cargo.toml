@@ -1,0 +1,11 @@
+[package]
+name = "backend"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+op = {path = "../op"}
+ir = {path = "../ir"}
+
+thin-vec.workspace = true
+la-arena.workspace = true

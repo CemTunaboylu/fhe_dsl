@@ -8,7 +8,7 @@ use crate::{
 
 #[derive(Clone, Debug)]
 pub struct Circuit {
-    q: SupportedType,
+    pub q: SupportedType,
     // This is a topologically ordered DAG
     pub(crate) gates: Arena<Gate>,
     pub(crate) inputs: ThinVec<GateIdx>,
