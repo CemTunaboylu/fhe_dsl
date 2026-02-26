@@ -72,13 +72,13 @@ impl Backend for MockFHEBackend {
     fn add(&mut self, lhs: &Self::Elem, rhs: &Self::Elem) -> Self::Elem {
         let mut element = self.constant(lhs.value + rhs.value);
         element.depth = max(lhs.depth, rhs.depth);
-        element.noise = lhs.noise + rhs.noise + ADD_COST;
+        element.noise = max(lhs.noise, rhs.noise) + ADD_COST;
         element
     }
     fn sub(&mut self, lhs: &Self::Elem, rhs: &Self::Elem) -> Self::Elem {
         let mut element = self.constant(lhs.value - rhs.value);
         element.depth = max(lhs.depth, rhs.depth);
-        element.noise = lhs.noise + rhs.noise + ADD_COST;
+        element.noise = max(lhs.noise, rhs.noise) + ADD_COST;
         element
     }
     // NOTE: Multiplication by a known constant is often cheaper, our folding at dsl ensures that
@@ -98,6 +98,8 @@ impl Backend for MockFHEBackend {
         }
     }
     // TODO: Introduce a cache to avoid evaluating the same circuit twice.
+    // NOTE: eval currently acts as the inputs are given plaintext, thus the mock fhe backend
+    // pseudo-encrypts them with elements having a noise.
     fn eval(
         &mut self,
         circuit: &Circuit,
@@ -111,10 +113,11 @@ impl Backend for MockFHEBackend {
         self.q = circuit.q;
         let mut results: ThinVec<Self::Elem> =
             thin_vec![Self::Elem::default(); circuit.gates().len()];
-
+        let q = self.q;
+        let modulo = |val| val % q;
         // One-to-one mapping between gate and elements, thus the same indices.
         for (ix, (_, gate)) in circuit.gates().iter().enumerate() {
-            let (value, depth, noise) = match gate {
+            let (mut value, depth, noise) = match gate {
                 Gate::Input(index) => (with[*index], 0, ENC_NOISE),
                 Gate::Const(constant) => (*constant, 0, 0),
                 Gate::BinOp(bin_op, lhs, rhs) => {
@@ -134,6 +137,7 @@ impl Backend for MockFHEBackend {
                     continue;
                 }
             };
+            value = modulo(value);
             let element = Self::Elem {
                 value,
                 depth,
@@ -263,5 +267,71 @@ mod test {
             BackendError::NoiseBudgetExceeded(noise_budget, single_mul_noise, 2),
             error
         );
+    }
+
+    #[test]
+    fn test_mock_fhe_add_sub() {
+        let gates = thin_vec![
+            Gate::Input(0),
+            Gate::Input(1),
+            Gate::BinOp(BinOp::Add, into_gate_idx(0), into_gate_idx(1)),
+            Gate::BinOp(BinOp::Sub, into_gate_idx(2), into_gate_idx(2)),
+            Gate::BinOp(BinOp::Add, into_gate_idx(3), into_gate_idx(3)),
+            Gate::BinOp(BinOp::Sub, into_gate_idx(2), into_gate_idx(3))
+        ];
+        let inputs = thin_vec![into_gate_idx(0), into_gate_idx(1)];
+        let outputs = thin_vec![into_gate_idx(3), into_gate_idx(4), into_gate_idx(5)];
+        let q = 11;
+
+        let circuit = Circuit::with(
+            q,
+            Arena::from_iter(gates.iter().map(Clone::clone)),
+            inputs,
+            outputs,
+        );
+
+        let noise_budget = ENC_NOISE + MUL_COST;
+        let mut plain_mod_q = MockFHEBackend::new(noise_budget);
+        let results = plain_mod_q
+            .eval(&circuit, &[1, 1])
+            .expect("should have evaluated");
+
+        let input_noise = ENC_NOISE;
+        let single_add_noise = input_noise + ADD_COST;
+
+        let expected_elements = thin_vec![
+            FHEElement {
+                value: 1,
+                depth: 0,
+                noise: input_noise,
+            },
+            FHEElement {
+                value: 1,
+                depth: 0,
+                noise: input_noise,
+            },
+            FHEElement {
+                value: 2,
+                depth: 0,
+                noise: single_add_noise,
+            },
+            FHEElement {
+                value: 0,
+                depth: 0,
+                noise: single_add_noise + ADD_COST,
+            },
+            FHEElement {
+                value: 0,
+                depth: 0,
+                noise: single_add_noise + 2 * ADD_COST,
+            },
+            FHEElement {
+                value: 2,
+                depth: 0,
+                noise: single_add_noise + 2 * ADD_COST,
+            },
+        ];
+
+        assert_eq!(expected_elements, results);
     }
 }
