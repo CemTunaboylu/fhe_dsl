@@ -173,7 +173,7 @@ impl CircuitCompiler {
 
                         // We want the visit order to be lhs, rhs and then parent so that we can form the
                         // gate for operation with lowered children. If they are not lowered yet when we are at the parent
-                        // (first time while DFSing), we push the parent to the stack again (we popped it from the stack and took the root_node),
+                        // (first time while DFSing), we push the parent to the stack again (we popped it from the stack and took the current_node),
                         // then the unlowered ones, so that we visit them first.
                         // TLDR: we want to ensure the order in the stack:
                         // [<current op>, <left child if not lowered>, <right child if not lowered>]
@@ -182,7 +182,7 @@ impl CircuitCompiler {
                         if rhs_gate_idx_opt.is_none() {
                             rhs_child_expr_idx = Some(rhs);
                         }
-                        // if the lhs child is not lowered yet, move root_node to lhs, if rhs is already lowered,
+                        // if the lhs child is not lowered yet, move current_node to lhs, if rhs is already lowered,
                         // push the parent on the stack again and continue; or move on to pushing
                         // rhs and parent in the stack.
                         if lhs_gate_idx_opt.is_none() {

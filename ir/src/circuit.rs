@@ -29,7 +29,6 @@ impl Circuit {
             outputs,
         }
     }
-
     pub fn gates(&self) -> &Arena<Gate> {
         &self.gates
     }

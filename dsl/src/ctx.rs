@@ -8,6 +8,8 @@ use crate::{
 use bit_set::BitSet;
 use la_arena::Arena;
 use passes::interner::Interner;
+
+#[cfg(feature = "graphview")]
 use thin_vec::{IntoIter as ThinIntoIter, ThinVec};
 
 use std::{cell::RefCell, rc::Rc};

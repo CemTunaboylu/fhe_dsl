@@ -62,11 +62,11 @@ impl Noise {
             return Ok(());
         }
 
-        return Err(BackendError::NoiseBudgetExceeded(
+        Err(BackendError::NoiseBudgetExceeded(
             self.noise_budget,
             self.max_so_far,
             self.index,
-        ));
+        ))
     }
 }
 
