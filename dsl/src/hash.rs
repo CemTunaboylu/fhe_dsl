@@ -53,11 +53,10 @@ impl From<&Expr> for ExprHash {
 #[cfg(test)]
 mod test {
     use super::*;
-    use la_arena::RawIdx;
     use std::collections::HashSet;
 
-    fn usize_to_idx(i: usize) -> ExprIdx {
-        ExprIdx::from_raw(RawIdx::from_u32(i as u32))
+    fn u32_to_idx(i: u32) -> ExprIdx {
+        common::u32_to_idx::<Expr>(i)
     }
 
     #[test]
@@ -65,8 +64,8 @@ mod test {
         let mut hash_set = HashSet::new();
 
         for bin_op in [BinOp::Add, BinOp::Mul] {
-            let expr = Expr::BinOp(bin_op, usize_to_idx(0), usize_to_idx(1));
-            let expr_swapped = Expr::BinOp(bin_op, usize_to_idx(1), usize_to_idx(0));
+            let expr = Expr::BinOp(bin_op, u32_to_idx(0), u32_to_idx(1));
+            let expr_swapped = Expr::BinOp(bin_op, u32_to_idx(1), u32_to_idx(0));
 
             hash_set.insert(expr);
             assert!(hash_set.contains(&expr_swapped));
@@ -74,8 +73,8 @@ mod test {
     }
     #[test]
     fn same_data_same_hash_for_non_ac() {
-        let gate = Expr::BinOp(BinOp::Sub, usize_to_idx(0), usize_to_idx(1));
-        let gate_swapped = Expr::BinOp(BinOp::Sub, usize_to_idx(1), usize_to_idx(0));
+        let gate = Expr::BinOp(BinOp::Sub, u32_to_idx(0), u32_to_idx(1));
+        let gate_swapped = Expr::BinOp(BinOp::Sub, u32_to_idx(1), u32_to_idx(0));
 
         let mut hash_set = HashSet::new();
 

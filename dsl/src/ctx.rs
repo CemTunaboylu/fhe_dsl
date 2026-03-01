@@ -10,9 +10,11 @@ use la_arena::Arena;
 use passes::interner::Interner;
 
 #[cfg(feature = "graphview")]
-use thin_vec::{IntoIter as ThinIntoIter, ThinVec};
-
+use crate::idx_to_u32;
+#[cfg(feature = "graphview")]
 use std::{cell::RefCell, rc::Rc};
+
+use thin_vec::{IntoIter as ThinIntoIter, ThinVec};
 
 pub type ContextRef = RefCell<Context>;
 
@@ -85,13 +87,13 @@ impl Context {
         let mut unused = self.create_set_of_all_indices();
 
         for (expr_idx, expr) in self.arena.iter() {
-            let expr_u32 = expr_idx.into_raw().into_u32();
+            let expr_u32 = idx_to_u32(expr_idx);
             unused.remove(expr_u32 as usize);
             match expr {
                 Expr::Input(_) | Expr::Const(_) => continue,
                 Expr::BinOp(_bin_op, lhs, rhs) => {
-                    let lhs_u32 = lhs.into_raw().into_u32();
-                    let rhs_u32 = rhs.into_raw().into_u32();
+                    let lhs_u32 = idx_to_u32(*lhs);
+                    let rhs_u32 = idx_to_u32(*rhs);
 
                     unused.remove(lhs_u32 as usize);
                     unused.remove(rhs_u32 as usize);

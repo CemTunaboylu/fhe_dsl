@@ -3,7 +3,10 @@ use std::{cell::RefCell, rc::Rc};
 use crate::{
     compilation_mode::*,
     ctx::{Context, ContextHandle},
+    expr::{Expr, ExprIdx},
 };
+
+use common::idx_to_u32 as c_idx_to_u32;
 
 pub mod add;
 pub mod compilation_mode;
@@ -16,6 +19,10 @@ pub mod mul;
 pub mod sub;
 
 pub type SupportedType = u64;
+
+pub(crate) fn idx_to_u32(expr_idx: ExprIdx) -> u32 {
+    c_idx_to_u32::<Expr>(expr_idx)
+}
 
 pub fn new_folding_strict_context(q: SupportedType) -> ContextHandle {
     let strictness: Strictness = [StrictnessOn::Input, StrictnessOn::Op].as_slice().into();

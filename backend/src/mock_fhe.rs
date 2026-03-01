@@ -1,6 +1,7 @@
 use std::cmp::max;
 
-use fxhash::FxBuildHasher;
+use common::idx_to_usize;
+use fxhash::{FxBuildHasher, FxHashMap};
 use ir::{
     SupportedType,
     circuit::Circuit,
@@ -11,8 +12,6 @@ use std::collections::HashMap;
 use thin_vec::{ThinVec, thin_vec};
 
 use crate::{Backend, BackendError, BackendResult, validation::validate_same_length};
-
-type FxHashMap<K, V> = HashMap<K, V, FxBuildHasher>;
 
 #[derive(Clone, Debug, Default)]
 pub struct MockFHEBackend {
@@ -136,11 +135,11 @@ impl Backend for MockFHEBackend {
                 Gate::Input(index) => self.input(with[*index]),
                 Gate::Const(constant) => self.constant(*constant),
                 Gate::BinOp(bin_op, lhs, rhs) => {
-                    let lhs_result_index = lhs.into_raw().into_u32();
-                    let rhs_result_index = rhs.into_raw().into_u32();
+                    let lhs_result_index = idx_to_usize(*lhs);
+                    let rhs_result_index = idx_to_usize(*rhs);
 
-                    let lhs_result = &results[lhs_result_index as usize];
-                    let rhs_result = &results[rhs_result_index as usize];
+                    let lhs_result = &results[lhs_result_index];
+                    let rhs_result = &results[rhs_result_index];
 
                     match bin_op {
                         BinOp::Add => self.add(lhs_result, rhs_result),
@@ -234,10 +233,8 @@ impl Backend for MockFHEBackend {
                     }
                 };
 
-                self.noise.update(
-                    element.noise,
-                    current_gate_idx.into_raw().into_u32() as usize,
-                )?;
+                self.noise
+                    .update(element.noise, idx_to_usize(current_gate_idx))?;
                 gate_idx_to_elem.insert(current_gate_idx, element);
             }
             // If stack is empty, we consumed all the sub-tree of the current node, thus we
@@ -274,12 +271,11 @@ impl Backend for MockFHEBackend {
 mod test {
     use super::*;
 
-    use ir::gate::GateIdx;
-
-    use la_arena::{Arena, Idx};
+    use common::u32_to_idx;
+    use la_arena::Arena;
 
     fn into_gate_idx(i: u32) -> GateIdx {
-        Idx::from_raw(i.into())
+        u32_to_idx(i)
     }
 
     #[test]

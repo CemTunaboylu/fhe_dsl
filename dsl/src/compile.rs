@@ -5,16 +5,17 @@ use ir::{
     gate::{Gate, GateIdx},
 };
 
-use fxhash::FxBuildHasher;
-use la_arena::{Arena, Idx, RawIdx};
-use thin_vec::ThinVec;
+use common::usize_to_idx;
 
-use std::collections::HashMap;
+use fxhash::{FxBuildHasher, FxHashMap};
+use la_arena::Arena;
+use thin_vec::ThinVec;
 
 use crate::{
     compilation_mode::{CompilationMode, Strictness, StrictnessOn},
     ctx::ContextHandle,
     expr::{Expr, ExprHandle, ExprIdx},
+    idx_to_u32,
 };
 
 #[derive(Clone, Debug)]
@@ -37,8 +38,6 @@ impl ContextHandle {
     }
 }
 
-type FxHashMap<K, V> = HashMap<K, V, FxBuildHasher>;
-
 #[derive(Clone, Debug)]
 struct CircuitCompiler {
     q: SupportedType,
@@ -58,7 +57,7 @@ impl CircuitCompiler {
         }
         let mut unused = ctx.create_set_of_all_indices();
         for expr_idx in self.expr_idx_to_gate_idx.keys() {
-            let expr_u32 = expr_idx.into_raw().into_u32();
+            let expr_u32 = idx_to_u32(*expr_idx);
             unused.remove(expr_u32 as usize);
         }
 
@@ -72,7 +71,7 @@ impl CircuitCompiler {
 
         // Accumulate all unused with their respective variants to report wholistically at once.
         for idx in unused.iter() {
-            let expr_idx = Idx::from_raw(RawIdx::from_u32(idx as u32));
+            let expr_idx = usize_to_idx(idx);
             let expr = self.context_handle.get(expr_idx);
             let to_push_in = match &expr {
                 Expr::Input(_) => &mut unused_inputs,
@@ -111,7 +110,7 @@ impl CircuitCompiler {
     }
     pub fn with(context_handle: ContextHandle) -> Self {
         let q = context_handle.0.borrow().q;
-        let expr_idx_to_gate_idx = HashMap::with_hasher(FxBuildHasher::default());
+        let expr_idx_to_gate_idx = FxHashMap::with_hasher(FxBuildHasher::default());
         Self {
             q,
             context_handle,
@@ -257,7 +256,6 @@ mod tests {
     use parameterized_test::create;
     use thin_vec::thin_vec;
 
-    use la_arena::RawIdx;
     use op::BinOp;
 
     use crate::{
@@ -279,10 +277,6 @@ mod tests {
         new_folding_strict_context(11)
     }
 
-    fn into_gate_idx(idx: u32) -> GateIdx {
-        GateIdx::from_raw(RawIdx::from_u32(idx))
-    }
-
     #[test]
     fn test_single_addition_with_same_constants_loose_also_folds() {
         let ctx_handle = test_loose_ctx_handle();
@@ -302,7 +296,7 @@ mod tests {
         assert_eq!(0, circuit.inputs().len());
         assert_eq!(1, circuit.outputs().len());
 
-        let const_gate_idx = into_gate_idx(0);
+        let const_gate_idx = usize_to_idx(0);
         assert_eq!(Gate::Const(expected), circuit.gates()[const_gate_idx]);
     }
 
@@ -346,7 +340,7 @@ mod tests {
         assert_eq!(0, circuit.inputs().len());
         assert_eq!(1, circuit.outputs().len());
 
-        let const_gate_idx = into_gate_idx(0);
+        let const_gate_idx = usize_to_idx::<Gate>(0);
         assert_eq!(Gate::Const(expected), circuit.gates()[const_gate_idx]);
     }
     #[test]
@@ -366,13 +360,13 @@ mod tests {
         assert_eq!(1, circuit.inputs().len());
         assert_eq!(1, circuit.outputs().len());
 
-        let const_gate_idx = into_gate_idx(0);
+        let const_gate_idx = usize_to_idx::<Gate>(0);
         assert_eq!(Gate::Const(value), circuit.gates()[const_gate_idx]);
 
-        let input_gate_idx = into_gate_idx(1);
+        let input_gate_idx = usize_to_idx::<Gate>(1);
         assert_eq!(Gate::Input(index), circuit.gates()[input_gate_idx]);
 
-        let add_gate_idx = into_gate_idx(2);
+        let add_gate_idx = usize_to_idx::<Gate>(2);
         assert_eq!(
             Gate::BinOp(BinOp::Add, const_gate_idx, input_gate_idx),
             circuit.gates()[add_gate_idx]
@@ -397,19 +391,19 @@ mod tests {
         assert_eq!(1, circuit.inputs().len());
         assert_eq!(1, circuit.outputs().len());
 
-        let input_gate_idx = into_gate_idx(0);
+        let input_gate_idx = usize_to_idx::<Gate>(0);
         assert_eq!(Gate::Input(index), circuit.gates()[input_gate_idx]);
 
-        let const_gate_idx = into_gate_idx(1);
+        let const_gate_idx = usize_to_idx::<Gate>(1);
         assert_eq!(Gate::Const(value), circuit.gates()[const_gate_idx]);
 
-        let add_gate_idx = into_gate_idx(2);
+        let add_gate_idx = usize_to_idx::<Gate>(2);
         assert_eq!(
             Gate::BinOp(BinOp::Add, input_gate_idx, const_gate_idx),
             circuit.gates()[add_gate_idx]
         );
 
-        let mul_gate_idx = into_gate_idx(3);
+        let mul_gate_idx = usize_to_idx::<Gate>(3);
         assert_eq!(
             Gate::BinOp(BinOp::Mul, add_gate_idx, add_gate_idx),
             circuit.gates()[mul_gate_idx]
@@ -449,7 +443,7 @@ mod tests {
         assert_eq!(0, circuit.inputs().len());
         assert_eq!(1, circuit.outputs().len());
 
-        let const_gate_idx = into_gate_idx(0);
+        let const_gate_idx = usize_to_idx::<Gate>(0);
         assert_eq!(Gate::Const(0), circuit.gates()[const_gate_idx]);
     }
 
@@ -476,7 +470,7 @@ mod tests {
         assert_eq!(1, circuit.outputs().len());
 
         for (val_ix, const_idx) in [0, 1, 3, 4].iter().enumerate() {
-            let gate_idx = into_gate_idx(*const_idx);
+            let gate_idx = usize_to_idx::<Gate>(*const_idx);
             let expected_expr = match val_ix % 2 {
                 // input
                 0 => Gate::Input(values[val_ix] as usize),
@@ -486,25 +480,25 @@ mod tests {
             assert_eq!(expected_expr, circuit.gates()[gate_idx]);
         }
 
-        let add_gate_idx = into_gate_idx(2);
-        let input_1_gate_idx = into_gate_idx(0);
-        let const_1_gate_idx = into_gate_idx(1);
+        let add_gate_idx = usize_to_idx::<Gate>(2);
+        let input_1_gate_idx = usize_to_idx::<Gate>(0);
+        let const_1_gate_idx = usize_to_idx::<Gate>(1);
 
         assert_eq!(
             Gate::BinOp(BinOp::Add, input_1_gate_idx, const_1_gate_idx),
             circuit.gates()[add_gate_idx]
         );
 
-        let add_gate_idx_2 = into_gate_idx(5);
-        let input_2_gate_idx = into_gate_idx(3);
-        let const_2_gate_idx = into_gate_idx(4);
+        let add_gate_idx_2 = usize_to_idx::<Gate>(5);
+        let input_2_gate_idx = usize_to_idx::<Gate>(3);
+        let const_2_gate_idx = usize_to_idx::<Gate>(4);
 
         assert_eq!(
             Gate::BinOp(BinOp::Add, input_2_gate_idx, const_2_gate_idx),
             circuit.gates()[add_gate_idx_2]
         );
 
-        let mul_gate_idx = into_gate_idx(6);
+        let mul_gate_idx = usize_to_idx::<Gate>(6);
         assert_eq!(
             Gate::BinOp(BinOp::Mul, add_gate_idx, add_gate_idx_2),
             circuit.gates()[mul_gate_idx]

@@ -51,18 +51,12 @@ mod tests {
     use parameterized_test::create;
     use std::ops::{Add, Mul, Sub};
 
-    use crate::new_loose_context;
-
-    use la_arena::Idx;
+    use crate::{idx_to_u32, new_loose_context};
 
     use super::*;
 
     fn test_ctx_handle() -> ContextHandle {
         new_loose_context(5)
-    }
-
-    fn index_to_u32(idx: Idx<Expr>) -> u32 {
-        idx.into_raw().into_u32()
     }
 
     #[test]
@@ -71,7 +65,7 @@ mod tests {
         let index = 0;
         let input = ctx_handle.input(index);
 
-        assert_eq!(index_to_u32(input.idx), 0);
+        assert_eq!(idx_to_u32(input.idx), 0);
 
         let inserted_expr = ctx_handle.get(input.idx);
         assert_eq!(inserted_expr, Expr::Input(index));
@@ -83,7 +77,7 @@ mod tests {
         let value = 9;
         let constant = ctx_handle.constant(value);
 
-        assert_eq!(index_to_u32(constant.idx), 0);
+        assert_eq!(idx_to_u32(constant.idx), 0);
 
         let inserted_expr = ctx_handle.get(constant.idx);
         assert_eq!(inserted_expr, Expr::Const(value));
@@ -100,20 +94,20 @@ mod tests {
         let constant = ctx_handle.constant(constant_value);
 
         let expected_length_for_constant = get_arena_len(&ctx_handle);
-        assert_eq!(index_to_u32(constant.idx), 0);
+        assert_eq!(idx_to_u32(constant.idx), 0);
 
         let same_constant = ctx_handle.constant(constant_value);
-        assert_eq!(index_to_u32(same_constant.idx), 0);
+        assert_eq!(idx_to_u32(same_constant.idx), 0);
         assert_eq!(get_arena_len(&ctx_handle), expected_length_for_constant);
 
         let index = 0;
         let input = ctx_handle.input(index);
 
         let expected_length_for_input = get_arena_len(&ctx_handle);
-        assert_eq!(index_to_u32(input.idx), 1);
+        assert_eq!(idx_to_u32(input.idx), 1);
 
         let another_input = ctx_handle.input(index);
-        assert_eq!(index_to_u32(another_input.idx), 1);
+        assert_eq!(idx_to_u32(another_input.idx), 1);
 
         assert_eq!(get_arena_len(&ctx_handle), expected_length_for_input);
     }
