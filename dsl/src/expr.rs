@@ -2,17 +2,32 @@ use la_arena::Idx;
 use op::BinOp;
 use passes::interner::Internable;
 
-use crate::{SupportedType, ctx::ContextHandle};
+use crate::{SupportedType, ctx::ContextHandle, hash::ExprHash};
 
 pub type ExprIdx = Idx<Expr>;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug)]
 pub enum Expr {
     /// takes the index of the argument
     Input(usize),
     Const(SupportedType),
     BinOp(BinOp, ExprIdx, ExprIdx),
 }
+
+impl PartialEq for Expr {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Input(l0), Self::Input(r0)) => l0 == r0,
+            (Self::Const(l0), Self::Const(r0)) => l0 == r0,
+            (Self::BinOp(_, _, _), Self::BinOp(_, _, _)) => {
+                ExprHash::from(self) == ExprHash::from(other)
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Expr {}
 
 impl Internable for Expr {}
 
@@ -206,6 +221,29 @@ mod tests {
                 assert_eq!(expr_handle.idx, same_expr_handle.idx);
                 let current_arena_length = get_arena_len(&ctx_handle);
                 assert_eq!(expected_arena_length, current_arena_length);
+            }
+
+            if matches!(op, BinOp::Sub) {
+                // Reverse order should not yield the same
+                for mode in [Mode::Move, Mode::Borrow, Mode::BorrowMut] {
+                    let (expr_handle, expectation) = perform_op_with_expectation_mode(op.clone(), constant.clone(), input.clone(), mode.clone());
+                    let (same_expr_handle, expectation) = perform_op_with_expectation_mode(op.clone(), constant.clone(), input.clone(), mode);
+
+                    assert!(expr_handle.idx == same_expr_handle.idx);
+                    let current_arena_length = get_arena_len(&ctx_handle);
+                    assert_eq!(expected_arena_length + 1, current_arena_length);
+                }
+            } else {
+                // Reverse order should also yield the same
+                for mode in [Mode::Move, Mode::Borrow, Mode::BorrowMut] {
+                    let (expr_handle, expectation) = perform_op_with_expectation_mode(op.clone(), constant.clone(), input.clone(), mode.clone());
+                    let (same_expr_handle, expectation) = perform_op_with_expectation_mode(op.clone(), constant.clone(), input.clone(), mode);
+
+                    assert_eq!(expr_handle.idx, same_expr_handle.idx);
+                    let current_arena_length = get_arena_len(&ctx_handle);
+                    assert_eq!(expected_arena_length, current_arena_length);
+                }
+
             }
         }
     }
