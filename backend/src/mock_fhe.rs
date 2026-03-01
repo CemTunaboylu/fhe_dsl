@@ -132,6 +132,7 @@ impl Backend for MockFHEBackend {
         // One-to-one mapping between gate and elements, thus the same indices.
         for (ix, (_, gate)) in circuit.gates().iter().enumerate() {
             let element = match gate {
+                Gate::Thombstone => continue,
                 Gate::Input(index) => self.input(with[*index]),
                 Gate::Const(constant) => self.constant(*constant),
                 Gate::BinOp(bin_op, lhs, rhs) => {
@@ -184,6 +185,7 @@ impl Backend for MockFHEBackend {
                 }
                 let gate = circuit.gates()[current_gate_idx];
                 let element = match gate {
+                    Gate::Thombstone => continue,
                     Gate::Input(index) => self.input(with[index]),
                     Gate::Const(constant) => self.constant(constant),
                     // Here, if we haven't already, we push children into the stack to first evaluate  them, (post-order)

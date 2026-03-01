@@ -61,6 +61,7 @@ where
     let t_depth = T::count(&gate);
     let depth = (c_depth, t_depth);
     match gate {
+        Gate::Thombstone => depth,
         Gate::Input(_) | Gate::Const(_) => depth,
         Gate::BinOp(_, lhs, rhs) => {
             let left_depth = get_depth::<C, T>(circuit, lhs);

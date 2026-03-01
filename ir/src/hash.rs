@@ -15,6 +15,7 @@ impl Hash for Gate {
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
+// NOTE: We don't hash Gate::Thombstones
 pub(crate) enum GateHash {
     Input(usize),
     Const(SupportedType),
@@ -40,6 +41,8 @@ impl From<&Gate> for GateHash {
                 }
                 (*bin_op, *lhs, *rhs)
             }
+            // NOTE: We don't hash Gate::Thombstones
+            Gate::Thombstone => unreachable!(),
         };
 
         if lhs > rhs {

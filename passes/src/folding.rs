@@ -4,6 +4,7 @@ use ir::{SupportedType, gate::Gate};
 
 pub fn fold(gate: Gate, arena: &mut Arena<Gate>, q: SupportedType) -> Gate {
     match gate {
+        Gate::Thombstone => gate,
         Gate::Input(_) | Gate::Const(_) => gate,
         Gate::BinOp(bin_op, lhs_idx, rhs_idx) => {
             let lhs = arena[lhs_idx];
@@ -23,4 +24,3 @@ pub fn fold(gate: Gate, arena: &mut Arena<Gate>, q: SupportedType) -> Gate {
         }
     }
 }
-

@@ -13,6 +13,7 @@ pub enum Gate {
     // NOTE: We preserve BinOp::Sub and not canonicalize it to (Add, lhs, (Mul, rhs, -1)) because
     // it will potentially increase multiplicative depth.
     BinOp(BinOp, GateIdx, GateIdx),
+    Thombstone,
 }
 
 impl PartialEq for Gate {
