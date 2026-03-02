@@ -12,9 +12,9 @@ use passes::interner::Interner;
 #[cfg(feature = "graphview")]
 use crate::idx_to_u32;
 #[cfg(feature = "graphview")]
-use std::{cell::RefCell, rc::Rc};
-
 use thin_vec::{IntoIter as ThinIntoIter, ThinVec};
+
+use std::{cell::RefCell, rc::Rc};
 
 pub type ContextRef = RefCell<Context>;
 
