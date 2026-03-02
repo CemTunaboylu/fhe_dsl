@@ -198,7 +198,7 @@ impl CircuitCompiler {
                             continue;
                         }
 
-                        // At this point, lhs and rhs childen are all lowered, we lower the
+                        // At this point, lhs and rhs children are all lowered, we lower the
                         // operation with their gate indices.
                         let lhs_gate_idx = lhs_gate_idx_opt.unwrap();
                         let rhs_gate_idx = rhs_gate_idx_opt.unwrap();

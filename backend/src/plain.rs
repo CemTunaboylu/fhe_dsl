@@ -108,7 +108,7 @@ impl Backend for PlainModQBackend {
                     Gate::Input(index) => self.input(with[index]),
                     Gate::Const(constant) => self.constant(constant),
                     // Here, if we haven't already, we push children into the stack to first evaluate  them, (post-order)
-                    // or we retrieve their evaluted elements form the map.
+                    // or we retrieve their evaluated elements form the map.
                     Gate::BinOp(bin_op, lhs, rhs) => {
                         let lhs_elem_opt = gate_idx_to_elem.get(&lhs);
                         let rhs_elem_opt = gate_idx_to_elem.get(&rhs);
@@ -141,7 +141,7 @@ impl Backend for PlainModQBackend {
                             continue;
                         }
 
-                        // At this point, lhs and rhs childen are all evaluted, we evalute the
+                        // At this point, lhs and rhs children are all evaluated, we evaluate the
                         // operation with their gate indices.
                         let lhs_result = lhs_elem_opt.unwrap();
                         let rhs_result = rhs_elem_opt.unwrap();

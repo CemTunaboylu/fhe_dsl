@@ -122,7 +122,7 @@ impl Backend for MockFHEBackend {
         validate_same_length(circuit, with)?;
         self.q = circuit.q;
         // NOTE: we restart noise because certain outputs can be below the budget but if we
-        // evaluate an output which overwhelms the noise budget, we won't be able to evalute
+        // evaluate an output which overwhelms the noise budget, we won't be able to evaluate
         // anything after that. Also the max and index values will be wrong no matter the case,
         // once a circuit is evaluated.
         self.noise = Noise::new(self.noise.noise_budget);
@@ -163,7 +163,7 @@ impl Backend for MockFHEBackend {
         validate_same_length(circuit, with)?;
         self.q = circuit.q;
         // NOTE: we restart noise because certain outputs can be below the budget but if we
-        // evaluate an output which overwhelms the noise budget, we won't be able to evalute
+        // evaluate an output which overwhelms the noise budget, we won't be able to evaluate
         // anything after that. Also the max and index values will be wrong no matter the case,
         // once a circuit is evaluated.
         self.noise = Noise::new(self.noise.noise_budget);
@@ -189,7 +189,7 @@ impl Backend for MockFHEBackend {
                     Gate::Input(index) => self.input(with[index]),
                     Gate::Const(constant) => self.constant(constant),
                     // Here, if we haven't already, we push children into the stack to first evaluate  them, (post-order)
-                    // or we retrieve their evaluted elements form the map.
+                    // or we retrieve their evaluated elements form the map.
                     Gate::BinOp(bin_op, lhs, rhs) => {
                         let lhs_elem_opt = gate_idx_to_elem.get(&lhs);
                         let rhs_elem_opt = gate_idx_to_elem.get(&rhs);
@@ -222,7 +222,7 @@ impl Backend for MockFHEBackend {
                             continue;
                         }
 
-                        // At this point, lhs and rhs childen are all evaluted, we evalute the
+                        // At this point, lhs and rhs children are all evaluated, we evaluate the
                         // operation with their gate indices.
                         let lhs_result = lhs_elem_opt.unwrap();
                         let rhs_result = rhs_elem_opt.unwrap();
@@ -302,13 +302,13 @@ mod test {
         );
 
         let noise_budget = 100;
-        let mut plain_mod_q = MockFHEBackend::new(noise_budget);
-        let error = plain_mod_q
+        let mut mock_fhe = MockFHEBackend::new(noise_budget);
+        let error = mock_fhe
             .eval(&circuit, &[1])
             .expect_err("should have failed");
         assert_eq!(BackendError::InvalidInputLen(2, 1), error);
 
-        let results = plain_mod_q
+        let results = mock_fhe
             .eval(&circuit, &[1, 1])
             .expect("should have evaluated");
 
@@ -373,8 +373,8 @@ mod test {
         );
 
         let noise_budget = ENC_NOISE + MUL_COST;
-        let mut plain_mod_q = MockFHEBackend::new(noise_budget);
-        let error = plain_mod_q
+        let mut mock_fhe = MockFHEBackend::new(noise_budget);
+        let error = mock_fhe
             .eval(&circuit, &[1, 1])
             .expect_err("should have failed due to noise budget");
 
@@ -408,8 +408,8 @@ mod test {
         );
 
         let noise_budget = ENC_NOISE + MUL_COST;
-        let mut plain_mod_q = MockFHEBackend::new(noise_budget);
-        let results = plain_mod_q
+        let mut mock_fhe = MockFHEBackend::new(noise_budget);
+        let results = mock_fhe
             .eval(&circuit, &[1, 1])
             .expect("should have evaluated");
 
@@ -474,8 +474,8 @@ mod test {
         );
 
         let noise_budget = ENC_NOISE + MUL_COST;
-        let mut plain_mod_q = MockFHEBackend::new(noise_budget);
-        let results = plain_mod_q
+        let mut mock_fhe = MockFHEBackend::new(noise_budget);
+        let results = mock_fhe
             .eval_outputs(&circuit, &[1, 1])
             .expect("should have evaluated");
 
@@ -525,8 +525,8 @@ mod test {
         );
 
         let noise_budget = 100;
-        let mut plain_mod_q = MockFHEBackend::new(noise_budget);
-        let results = plain_mod_q
+        let mut mock_fhe = MockFHEBackend::new(noise_budget);
+        let results = mock_fhe
             .eval_outputs(&circuit, &[1, 1])
             .expect("should have evaluated");
 

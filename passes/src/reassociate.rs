@@ -101,7 +101,7 @@ fn kill_unused_gates(
     for to_kill_idx in liveness_wrt_usage.get_killing_list() {
         let dead_idx = idx_to_usize(*to_kill_idx);
         dead[dead_idx] = true;
-        // Propagate Thombstones if operans are only used by this.
+        // Propagate Thombstones if operands are only used by this.
         if let Gate::BinOp(_bin_op, lhs, rhs) = gates[*to_kill_idx] {
             for operand in [lhs, rhs] {
                 if liveness_wrt_usage.num_usage(operand) == 0 {
@@ -663,7 +663,7 @@ mod test {
         * let z = b+d;
         * let y = ((a+c)+b)+d;
         */
-        multiple_reassocations: (
+        multiple_reassociations: (
             &[
                 Gate::Input(0),                                            // a
                 Gate::Input(1),                                            // b
