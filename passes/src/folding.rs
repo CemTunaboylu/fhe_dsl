@@ -2,7 +2,7 @@ use la_arena::Arena;
 
 use ir::{SupportedType, gate::Gate};
 
-pub fn fold(gate: Gate, arena: &mut Arena<Gate>, q: SupportedType) -> Gate {
+pub fn fold(gate: Gate, arena: &Arena<Gate>, q: SupportedType) -> Gate {
     match gate {
         Gate::Thombstone => gate,
         Gate::Input(_) | Gate::Const(_) => gate,

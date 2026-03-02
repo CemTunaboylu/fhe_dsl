@@ -1,73 +1,156 @@
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use ir::{
-    circuit::Circuit,
-    gate::{Gate, GateIdx},
+    SupportedType, circuit::Circuit, gate::{Gate, GateIdx}
 };
 use la_arena::Arena;
 use op::BinOp;
-use thin_vec::ThinVec;
+use thin_vec::{ThinVec, thin_vec};
 
-use crate::{idx_to_usize, liveness::LivenessWRTUsage, usize_to_idx};
+use crate::{folding, is_op_associative_and_commutative,  idx_to_usize, liveness::LivenessWRTUsage, usize_to_idx};
 
-/* Find sub-graphs that is pure AC (associative, commutative) op of the same kind, and try to
-* rewrite them to reuse other pre-computed instructions.
-* let x = a+b;
-* let y = a+c+b;
-*
-* becomes
-* let x = a+b;
-* let y = x+c;
-*
-* a+c+b -> a+b+c -> x+c
-*/
-pub fn reuse_driven_reassociate(circuit: &Circuit) -> Circuit {
-    let mut gates = circuit.gates().clone();
-    let mut dead = vec![false; gates.len()];
+// TODO: Housekeeping: Update operation_gates after the pass, 
 
-    let (operation_gates, mut liveness_wrt_usage, mut seen) = gate_relationships(&gates);
+#[derive(Debug)]
+struct ReassociationPass {
+    q: SupportedType,
+    gates: Arena<Gate>,
+    dead: ThinVec<bool>,
+    liveness_wrt_usage: LivenessWRTUsage,
+    seen: FxHashMap<Gate, GateIdx>,
+    operation_gates: ThinVec<GateIdx>,
+    constant_gates: FxHashSet<GateIdx>,
+}
 
-    let mut reassociated = true;
-    while reassociated {
-        reassociated = false;
-        // Loop over recorded Ops instead of all the gates.
-        for idx in 0..operation_gates.len() {
-            let gate_idx = operation_gates[idx];
-            let mut gate = gates[gate_idx];
-            // We search for I = ((a op b) op c) or (a op (b op c)) to try associate.
-            if let Gate::BinOp(bin_op_of_i, lhs_idx, rhs_idx) = gate
-            // To reassociate, we need associativity and commutativity 
-            && is_op_associative_and_commutative(bin_op_of_i)
-            && let Some(reassociation_candidates) =
-                        extract_reassociation_candidates(circuit, bin_op_of_i, lhs_idx, rhs_idx)
-            // We want the instruction we plan to rewrite is to be used once. 
-            // The 'why' of this is explain in the wiki.
-            && liveness_wrt_usage.num_usage(reassociation_candidates.instruction_to_rewrite) <= 1
-            && let Some(reassociation) = try_reassociate_candidates(reassociation_candidates, bin_op_of_i, &seen, &dead)
-            {
-                gates[gate_idx] = reassociation.gate;
-                seen.remove(&gate);
-                liveness_wrt_usage.increment(reassociation.replacing, gate_idx);
-                liveness_wrt_usage.decrement(reassociation.replaced, gate_idx);
-                gate = reassociation.gate;
-                seen.insert(gate, gate_idx);
-                reassociated = true;
-            }
+// TODO: when a gate is dead, propagate death to its children, as the whole sub-tree
+impl ReassociationPass {
+    fn new(circuit: &Circuit) -> Self {
+        let q = circuit.q;
+        let gates = circuit.gates().clone();
+        let dead = thin_vec![false; gates.len()];
+        // Learn topology of the circuit
+        let (operation_gates, constant_gates, liveness_wrt_usage, seen) =
+            learn_topology_of(circuit);
+        Self {
+            q,
+            gates,
+            dead,
+            liveness_wrt_usage,
+            seen,
+            operation_gates,
+            constant_gates,
         }
-        // TODO: remove Thombstoned indices from operation_gates
-        kill_unused_gates(&mut liveness_wrt_usage, &mut dead, &mut gates);
     }
 
-    new_reassociated_circuit_from(circuit, &mut gates, &liveness_wrt_usage)
+    fn propagated_decrement(&mut self, from: GateIdx, dec: GateIdx) {
+        // if self.dead[idx_to_usize(from)] {return;}
+        // if self.dead[idx_to_usize(dec)] {return;}
+        if self.liveness_wrt_usage.decrement(from, dec) == 0 && let Gate::BinOp(_, lhs, rhs) = self.gates[from]{
+            for child in [lhs, rhs] {
+                self.propagated_decrement(child, from);
+            }
+        }
+    }
+
+   fn propagated_increment(&mut self, from: GateIdx, incr:GateIdx) {
+        if self.liveness_wrt_usage.increment(from, incr) == 1 && let Gate::BinOp(_, lhs, rhs) = self.gates[from]{
+            for child in [lhs, rhs] {
+                self.propagated_increment(child, from);
+            }
+        }
+   }
+
+    fn accept_reassociation(&mut self,reassociation: Reassociation, rewritten_root_op_gate: Gate, rewritten_root_op_gate_idx: GateIdx) {
+        // The old root gate is changed thus remove it
+        self.seen.remove(&rewritten_root_op_gate);
+
+        let (new_root, to_severe_from_root, to_connect_root) = match reassociation{
+            // Swapped one of it's child with an already existing (dominator) gate
+            Reassociation::Ternary{new_root, usage_update} => {
+                let UsageUpdate { to_severe_from_root , to_connect_root} = usage_update;
+                (new_root, to_severe_from_root, to_connect_root)
+            },
+            // We folded 2 constants that are neighbours, thus we have to housekeep: replace with
+            // the discarded gate, decrement it's usages and propagate them.
+            Reassociation::Folding { new_root, folded_gate, replacing_index, usage_update } => {
+                let discarded = self.gates[replacing_index]; 
+                self.seen.remove(&discarded);
+                // Remove usage of the discarded by rewritten root, and progate this to it's
+                // children recursively. It will be put replacing_index into killing list but once 
+                // we increment it's usage again, it will be remove from the killing list.
+                self.propagated_decrement(replacing_index, rewritten_root_op_gate_idx);
+
+                self.gates[replacing_index] = folded_gate;
+                self.seen.insert(folded_gate, replacing_index);
+                // Removes from killing list if necessary
+                self.propagated_increment(replacing_index, rewritten_root_op_gate_idx);
+                self.constant_gates.insert(replacing_index);
+
+                let UsageUpdate { to_severe_from_root , to_connect_root} = usage_update;
+                (new_root, to_severe_from_root, to_connect_root)
+            },
+        }; 
+
+        self.gates[rewritten_root_op_gate_idx] = new_root;
+        self.seen.insert(new_root, rewritten_root_op_gate_idx);
+
+        // cutting ties with the new root: the old gate that is rewritten, or (in case of Ternary) is the
+        // input/const moved 'in' to the new reassociated child (already existing dominator).
+        for decr in to_severe_from_root {
+            self.propagated_decrement(decr, rewritten_root_op_gate_idx);
+        }
+
+        // cutting ties with the new root, one is the old gate that is rewritten, other is the
+        // input/constant that is moved 'in' to the new reassociated child.
+        for incr in to_connect_root {
+            self.liveness_wrt_usage.increment(incr, rewritten_root_op_gate_idx);
+        }
+    }
+
+    fn kill_unused_gates(&mut self) {
+        // When thombstone is a Gate, it's operands if necessary, should have their usages change.
+        for to_kill_idx in self.liveness_wrt_usage.get_killing_list() {
+            let dead_idx = idx_to_usize(*to_kill_idx);
+            if self.dead[dead_idx] {continue;}
+            self.dead[dead_idx] = true;
+            let to_kill = self.gates[*to_kill_idx]; 
+            match to_kill {
+                Gate::Input(_) => {},
+                Gate::Const(_) => {
+                    self.constant_gates.remove(to_kill_idx);
+                },
+                // Propagate Thombstones if operands are only used by this.
+                Gate::BinOp(_, lhs, rhs) => {
+                    for operand in [lhs, rhs] {
+                        if self.liveness_wrt_usage.num_usage(operand) == 0 {
+                            self.gates[operand] = Gate::Thombstone;
+                            self.dead[idx_to_usize(operand)] = true;
+                        }
+                    }
+                },
+                Gate::Thombstone => {
+                    dbg!(to_kill_idx);
+                },
+            }
+            self.seen.remove(&to_kill);
+            self.gates[*to_kill_idx] = Gate::Thombstone;
+        }
+        self.liveness_wrt_usage.clear();
+    }
+
 }
 
-fn is_op_associative_and_commutative(bin_op_of_i: BinOp) -> bool {
-    bin_op_of_i.is_associative() && bin_op_of_i.is_commutative()
-}
-
-fn gate_relationships(
-    gates: &Arena<Gate>,
-) -> (ThinVec<GateIdx>, LivenessWRTUsage, FxHashMap<Gate, GateIdx>) {
+fn learn_topology_of(
+    circuit: &Circuit,
+) -> (
+    ThinVec<GateIdx>,
+    FxHashSet<GateIdx>,
+    LivenessWRTUsage,
+    FxHashMap<Gate, GateIdx>,
+) {
+    let gates= circuit.gates();
     let mut operation_gates = ThinVec::<GateIdx>::new();
+    let mut constant_gates: FxHashSet<GateIdx> = FxHashSet::with_hasher(FxBuildHasher::default());
+
     let len_gates = gates.len();
 
     let mut liveness_wrt_usage = LivenessWRTUsage::new(len_gates);
@@ -78,7 +161,10 @@ fn gate_relationships(
         let gate_idx = usize_to_idx(idx);
         let gate = gates[gate_idx];
         match gate {
-            Gate::Input(_) | Gate::Const(_) | Gate::Thombstone => {}
+            Gate::Input(_) | Gate::Thombstone => {}
+            Gate::Const(_) => {
+                constant_gates.insert(gate_idx);
+            }
             Gate::BinOp(_, lhs_idx, rhs_idx) => {
                 operation_gates.push(gate_idx);
                 // Update the operands usages by adding this gate to the set.
@@ -89,35 +175,60 @@ fn gate_relationships(
         }
         seen.insert(gate, gate_idx);
     }
-    (operation_gates, liveness_wrt_usage, seen)
+
+    for out_idx in circuit.outputs() {
+        liveness_wrt_usage.increment(*out_idx,* out_idx);
+    }
+    (operation_gates, constant_gates, liveness_wrt_usage, seen)
 }
 
-fn kill_unused_gates(
-    liveness_wrt_usage: &mut LivenessWRTUsage,
-    dead: &mut [bool],
-    gates: &mut Arena<Gate>,
-) {
-    // When thombstone is a Gate, it's operands if necessary, should have their usages change.
-    for to_kill_idx in liveness_wrt_usage.get_killing_list() {
-        let dead_idx = idx_to_usize(*to_kill_idx);
-        dead[dead_idx] = true;
-        // Propagate Thombstones if operands are only used by this.
-        if let Gate::BinOp(_bin_op, lhs, rhs) = gates[*to_kill_idx] {
-            for operand in [lhs, rhs] {
-                if liveness_wrt_usage.num_usage(operand) == 0 {
-                    gates[operand] = Gate::Thombstone;
-                }
+/* Find a sub-graph of an AC (associative, commutative) op of the same kind of the current node, and try to
+* rewrite by reusing other pre-computed instructions.
+* let x = a+b;
+* let y = a+c+b;
+*
+* becomes
+* let x = a+b;
+* let y = x+c;
+*
+* a+c+b -> a+b+c -> x+c
+*/
+pub fn reuse_driven_reassociate(circuit: &Circuit) -> Circuit {
+    let mut reassociation_pass = ReassociationPass::new(circuit);
+
+    let mut reassociated = true;
+    while reassociated {
+        reassociated = false;
+        // Loop over recorded Ops instead of all the gates.
+        for idx in 0..reassociation_pass.operation_gates.len(){
+            let gate_idx = reassociation_pass.operation_gates[idx];
+            let gate = reassociation_pass.gates[gate_idx];
+
+            // We search for I = ((a op b) op c) or (a op (b op c)) to try associate.
+            if let Gate::BinOp(bin_op_of_i, lhs_idx, rhs_idx) = gate
+            // To reassociate, we need associativity and commutativity 
+            && is_op_associative_and_commutative(bin_op_of_i)
+            && let Some(reassociation_candidates) =
+                        extract_reassociation_candidates(&reassociation_pass.gates, bin_op_of_i, lhs_idx, rhs_idx)
+            // We want the instruction we plan to rewrite is to be used once. 
+            // The 'why' of this is explain in the wiki.
+            && reassociation_pass.liveness_wrt_usage.num_usage(reassociation_candidates.instruction_to_reassociate) <= 1
+            && let Some(reassociation) = try_reassociate_candidates(reassociation_candidates, bin_op_of_i, 
+               &mut reassociation_pass)
+            {
+                reassociation_pass.accept_reassociation(reassociation, gate, gate_idx);
+                reassociated = true;
             }
         }
-        gates[*to_kill_idx] = Gate::Thombstone;
+        reassociation_pass.kill_unused_gates();
     }
-    liveness_wrt_usage.clear();
+
+    new_reassociated_circuit_from(circuit, reassociation_pass)
 }
 
 fn new_reassociated_circuit_from(
     circuit: &Circuit,
-    gates: &mut Arena<Gate>,
-    liveness_wrt_usage: &LivenessWRTUsage,
+    mut reassocation_pass: ReassociationPass,
 ) -> Circuit {
     // input indices may have changed
     let mut inputs = ThinVec::with_capacity(circuit.inputs().len());
@@ -130,13 +241,13 @@ fn new_reassociated_circuit_from(
     // order, it is guaranteed that any Operation using an operand comes after it.
     let mut old_outputs = FxHashSet::from_iter(circuit.outputs().iter());
 
-    for idx in 0..gates.len() {
-        let gate_idx = usize_to_idx(idx);
-        let gate = gates[gate_idx];
-
-        if matches!(gate, Gate::Thombstone) {
+    for idx in 0..reassocation_pass.gates.len() {
+        if reassocation_pass.dead[idx] {
             continue;
-        }
+        } 
+
+        let gate_idx = usize_to_idx(idx);
+        let gate = reassocation_pass.gates[gate_idx];
 
         let new_gate_idx = alive_gates.alloc(gate);
 
@@ -144,7 +255,8 @@ fn new_reassociated_circuit_from(
             inputs.push(new_gate_idx);
         }
 
-        if old_outputs.remove(&gate_idx) {
+        let is_an_output = old_outputs.remove(&gate_idx);
+        if is_an_output {
             outputs.push(new_gate_idx);
         }
 
@@ -152,10 +264,14 @@ fn new_reassociated_circuit_from(
             continue;
         }
 
-        for user in liveness_wrt_usage.get_usages(gate_idx) {
-            let mut user_gate = gates[*user];
+        for user in reassocation_pass.liveness_wrt_usage.get_usages(gate_idx) {
+            // Outputs are self-used to prevent them being killed.
+            if is_an_output && *user == gate_idx {
+                continue;
+            }
+            let mut user_gate = reassocation_pass.gates[*user];
             match &mut user_gate {
-                // NOTE: folding will be another pass thus those cannot be in usage list.
+                // NOTE: A gate user cannot be a constant or an input, their in-degree is 0.
                 Gate::Input(_) | Gate::Const(_) => unreachable!(),
                 Gate::Thombstone => continue,
                 Gate::BinOp(_bin_op, lhs, rhs) => {
@@ -169,7 +285,7 @@ fn new_reassociated_circuit_from(
                     *replace = new_gate_idx;
                 }
             }
-            gates[*user] = user_gate;
+            reassocation_pass.gates[*user] = user_gate;
         }
     }
     Circuit::with(circuit.q, alive_gates, inputs, outputs)
@@ -181,7 +297,7 @@ struct ReassociationCandidates {
     b: GateIdx,
     c: GateIdx,
     is_lhs: bool,
-    instruction_to_rewrite: GateIdx,
+    instruction_to_reassociate: GateIdx,
 }
 
 // We want at least one of them to be of same Op and corresponding uses value
@@ -189,13 +305,13 @@ struct ReassociationCandidates {
 // We expect something like i) ((a op b) op c) or ii) (a op (b op c)) so that we can
 // try (a op c) and (b op c) for i and (a op c) and (a op b) for ii.
 fn extract_reassociation_candidates(
-    circuit: &Circuit,
+    gates: &Arena<Gate>,
     current_instruction_bin_op: BinOp,
     lhs_idx: GateIdx,
     rhs_idx: GateIdx,
 ) -> Option<ReassociationCandidates> {
-    let lhs_gate = circuit.gates()[lhs_idx];
-    let rhs_gate = circuit.gates()[rhs_idx];
+    let lhs_gate = gates[lhs_idx];
+    let rhs_gate = gates[rhs_idx];
 
     // We want at least one of them to be of same Op and corresponding uses value
     // to be 1, so that we can attempt to reassociate the operands.
@@ -234,32 +350,38 @@ fn extract_reassociation_candidates(
         b,
         c,
         is_lhs,
-        instruction_to_rewrite: i,
+        instruction_to_reassociate: i,
     };
     Some(reassociation_candidates)
 }
 
+
 #[derive(Debug)]
-struct Reassociation {
-    replacing: GateIdx,
-    replaced: GateIdx,
-    gate: Gate,
+struct UsageUpdate {
+    to_severe_from_root: ThinVec<GateIdx>, to_connect_root: ThinVec<GateIdx>,
+}
+
+
+#[derive(Debug)]
+enum Reassociation {
+    Ternary{new_root: Gate, usage_update: UsageUpdate},
+    Folding{new_root: Gate, folded_gate: Gate, replacing_index: GateIdx, usage_update: UsageUpdate}
 }
 
 fn try_reassociate_candidates(
     reassociation_candidate: ReassociationCandidates,
     bin_op_of_i: BinOp,
-    seen: &FxHashMap<Gate, GateIdx>,
-    dead: &[bool],
+    reassociation_pass: &mut ReassociationPass,
 ) -> Option<Reassociation> {
     let ReassociationCandidates {
         a,
         b,
         c,
         is_lhs,
-        instruction_to_rewrite: i,
+        instruction_to_reassociate: instruction_to_rewrite ,
     } = reassociation_candidate;
 
+    // TODO: I can do this during extraction
     // i) ((a op b) op c) -> try (a op c) and (b op c)
     // ii) (a op (b op c)) -> (a op c) and (a op b) for ii.
     // left_right is the common (a op c), mid_other is (b op c) or (a op b)
@@ -274,32 +396,61 @@ fn try_reassociate_candidates(
     };
 
     for to_try in [(left_right, b), (with_mid, other)] {
-        if let Some((new_gate, reassoc_gate_idx)) = form_a_gate(bin_op_of_i, to_try, seen, dead) {
-            let reassociation = Reassociation {
-                replacing: reassoc_gate_idx,
-                replaced: i,
-                gate: new_gate,
-            };
-            return Some(reassociation);
+        {
+            let reassociation =  form_a_gate(bin_op_of_i, instruction_to_rewrite, to_try, is_lhs, reassociation_pass);
+            if reassociation.is_some() {return reassociation}
         }
     }
-
     None
 }
 
 fn form_a_gate(
     bin_op_of_i: BinOp,
+    instruction_to_rewrite: GateIdx,
     ops: ((GateIdx, GateIdx), GateIdx),
-    seen: &FxHashMap<Gate, GateIdx>,
-    dead: &[bool],
-) -> Option<(Gate, GateIdx)> {
+    is_lhs: bool,
+    reassociation_pass: &mut ReassociationPass,
+) -> Option<Reassociation> {
     let (new_ops, other) = ops;
-    let new_reassoc_gate = Gate::BinOp(bin_op_of_i, new_ops.0, new_ops.1);
-    if let Some(new_reassoc_gate_idx) = seen.get(&new_reassoc_gate)
-        && !dead[idx_to_usize(*new_reassoc_gate_idx)]
+    let new_reassociated_child = Gate::BinOp(bin_op_of_i, new_ops.0, new_ops.1);
+    if let Some(new_reassoc_gate_idx) = reassociation_pass.seen.get(&new_reassociated_child)
+        && !reassociation_pass.dead[idx_to_usize(*new_reassoc_gate_idx)]
     {
-        let new_gate = Gate::BinOp(bin_op_of_i, *new_reassoc_gate_idx, other);
-        return Some((new_gate, *new_reassoc_gate_idx));
+        let new_root = Gate::BinOp(bin_op_of_i, *new_reassoc_gate_idx, other);
+        let moved_in_child = if is_lhs {
+            new_ops.1
+        } else {
+            new_ops.0
+        };
+        let usage_update = UsageUpdate{to_severe_from_root: thin_vec![instruction_to_rewrite, moved_in_child], to_connect_root: thin_vec![*new_reassoc_gate_idx, other]};
+        return Some(Reassociation::Ternary{new_root, usage_update});
+    }
+    // If the new operation is constant op constant, to enable folding we reassociate.
+    // We create a new Gate::Const with folding::fold 
+    else if reassociation_pass.constant_gates.contains(&new_ops.0) && reassociation_pass.constant_gates.contains(&new_ops.1) {
+        // We know that instruction to rewrite is only used by us, so we will replace it with our folded gate directly.
+        let folded_gate= folding::fold(Gate::BinOp(bin_op_of_i, new_ops.0, new_ops.1), &reassociation_pass.gates, reassociation_pass.q);
+    
+        // We have to severe the usage connections of the constants with their parent Ops. 
+        // In case association is lhs and left/right, left-most constant and the `other` is attached to gate that is being
+        // replaced, right-most constant is attached to the root of this sub-tree.
+        // Since the ops come in order, we can deduce which nodes are connected to which.
+        // Only severe const attached to root, dead one will be propagated during replacement, other non-const must
+        // be connected to the new root now.
+        let to_severe_from_root = if is_lhs {
+            new_ops.1
+        } else {
+            new_ops.0
+        };
+
+        let usage_update = UsageUpdate {
+            to_severe_from_root: thin_vec![to_severe_from_root], to_connect_root: thin_vec![other],
+        };
+
+        // The folded gate will be put in place of the gate at instruction_to_rewrite.
+        let new_root = Gate::BinOp(bin_op_of_i, instruction_to_rewrite, other);
+        let replacing_index = instruction_to_rewrite;
+        return Some(Reassociation::Folding{new_root, folded_gate, replacing_index, usage_update});
     }
     None
 }
@@ -330,15 +481,9 @@ mod test {
 
         let circuit = Circuit::with(q, Arena::from_iter(gates.iter().cloned()), inputs, outputs);
 
-        let len_gates = circuit.gates().len();
-
-        let dead = vec![false; len_gates];
-        let mut seen: FxHashMap<Gate, GateIdx> = FxHashMap::with_hasher(FxBuildHasher::default());
-
-        seen.insert(circuit.gates()[usize_to_idx(3)], usize_to_idx(3));
-
+        let mut reassocation_pass = ReassociationPass::new(&circuit);
         let reassociation_candidate = extract_reassociation_candidates(
-            &circuit,
+            &reassocation_pass.gates,
             BinOp::Add,
             usize_to_idx(4),
             usize_to_idx(1),
@@ -352,18 +497,23 @@ mod test {
         assert_eq!(usize_to_idx(1), reassociation_candidate.c);
         assert_eq!(
             usize_to_idx(4),
-            reassociation_candidate.instruction_to_rewrite
+            reassociation_candidate.instruction_to_reassociate
         );
 
         let new_gate = Gate::BinOp(BinOp::Add, usize_to_idx(3), usize_to_idx(2));
 
         let reassociation =
-            try_reassociate_candidates(reassociation_candidate, BinOp::Add, &seen, &dead)
+            try_reassociate_candidates(reassociation_candidate, BinOp::Add, &mut reassocation_pass)
                 .expect("to reassociate");
 
-        assert_eq!(usize_to_idx(3), reassociation.replacing);
-        assert_eq!(usize_to_idx(4), reassociation.replaced);
-        assert_eq!(new_gate, reassociation.gate);
+        match reassociation {
+            Reassociation::Ternary { new_root, usage_update } => {
+                assert_eq!(new_gate, new_root);
+                assert_eq!(&[usize_to_idx(4), usize_to_idx(1)], usage_update.to_severe_from_root.as_slice());
+                assert_eq!(&[usize_to_idx(3), usize_to_idx(2)], usage_update.to_connect_root.as_slice());
+            },
+            _ => panic!(),
+        }
     }
 
     #[test]
@@ -383,15 +533,9 @@ mod test {
 
         let circuit = Circuit::with(q, Arena::from_iter(gates.iter().cloned()), inputs, outputs);
 
-        let len_gates = circuit.gates().len();
-
-        let dead = vec![false; len_gates];
-        let mut seen: FxHashMap<Gate, GateIdx> = FxHashMap::with_hasher(FxBuildHasher::default());
-
-        seen.insert(circuit.gates()[usize_to_idx(3)], usize_to_idx(3));
-
+        let mut reassocation_pass = ReassociationPass::new(&circuit);
         let reassociation_candidate = extract_reassociation_candidates(
-            &circuit,
+            &reassocation_pass.gates,
             BinOp::Add,
             usize_to_idx(1),
             usize_to_idx(4),
@@ -406,18 +550,23 @@ mod test {
         assert_eq!(usize_to_idx(0), reassociation_candidate.c);
         assert_eq!(
             usize_to_idx(4),
-            reassociation_candidate.instruction_to_rewrite
+            reassociation_candidate.instruction_to_reassociate
         );
 
         let new_gate = Gate::BinOp(BinOp::Add, usize_to_idx(3), usize_to_idx(0));
 
         let reassociation =
-            try_reassociate_candidates(reassociation_candidate, BinOp::Add, &seen, &dead)
+            try_reassociate_candidates(reassociation_candidate, BinOp::Add, &mut reassocation_pass)
                 .expect("to reassociate");
 
-        assert_eq!(usize_to_idx(3), reassociation.replacing);
-        assert_eq!(usize_to_idx(4), reassociation.replaced);
-        assert_eq!(new_gate, reassociation.gate);
+        match reassociation {
+            Reassociation::Ternary { new_root, usage_update } => {
+                assert_eq!(new_gate, new_root);
+                assert_eq!(&[usize_to_idx(4), usize_to_idx(1)], usage_update.to_severe_from_root.as_slice());
+                assert_eq!(&[usize_to_idx(3), usize_to_idx(0)], usage_update.to_connect_root.as_slice());
+            },
+            _ => panic!(),
+        }
     }
 
     create! {
@@ -673,6 +822,7 @@ mod test {
                 Gate::BinOp(BinOp::Add, usize_to_idx(1), usize_to_idx(3)), // b + d
                 // will be removed
                 Gate::BinOp(BinOp::Add, usize_to_idx(0), usize_to_idx(1)), // a + b
+                // will be removed
                 Gate::BinOp(BinOp::Add, usize_to_idx(6), usize_to_idx(2)), // (a+b)+c
                 Gate::BinOp(BinOp::Add, usize_to_idx(7), usize_to_idx(3)), // ((a+b)+c)+d
             ],
@@ -685,10 +835,94 @@ mod test {
                 Gate::Input(3),                                            // d
                 Gate::BinOp(BinOp::Add, usize_to_idx(0), usize_to_idx(2)), // a + c
                 Gate::BinOp(BinOp::Add, usize_to_idx(1), usize_to_idx(3)), // b + d
-                Gate::BinOp(BinOp::Add, usize_to_idx(4), usize_to_idx(1)), // (a + c) + b
-                Gate::BinOp(BinOp::Add, usize_to_idx(6), usize_to_idx(3)), // ((a+b)+c)+d
+                Gate::BinOp(BinOp::Add, usize_to_idx(4), usize_to_idx(5)), // ((a+b)+c)+d
             ],
-            &[4,5,7],
+            &[4,5,6],
+        ),
+        /*
+        * let c1 = 2;
+        * let c2 = 3;
+        * let x = a+b
+        * let a_c1 = a+c1;
+        * let a_c1_c2 = a_c1 + c2;   -> (a+c1)+c2 -> a+(c3)
+        * let y = a_c1_c2 + b;
+        *
+        * will become 
+        * let x = a+b
+        * let c_fold = ctx.constant(2+3);
+        * let y = c_fold+x;
+        */
+        multiple_reassociations_enables_constant_folding_1_round_for_folding: (
+            &[
+                Gate::Input(0),                                            // a
+                Gate::Input(1),                                            // b
+                Gate::Const(2),                                            // c1
+                Gate::Const(3),                                            // c2
+                Gate::BinOp(BinOp::Add, usize_to_idx(0), usize_to_idx(1)), // a + b 
+                // replacing this one
+                Gate::BinOp(BinOp::Add, usize_to_idx(0), usize_to_idx(2)), // a + c1
+                // to make this one (a+c3)
+                Gate::BinOp(BinOp::Add, usize_to_idx(5), usize_to_idx(3)), // a_c1 + c2
+                Gate::BinOp(BinOp::Add, usize_to_idx(6), usize_to_idx(1)), // a_c1_c2 + b
+            ],
+            &[0,1],
+            &[4,7],
+            &[
+                Gate::Input(0),                                            // a
+                Gate::Input(1),                                            // b
+                Gate::BinOp(BinOp::Add, usize_to_idx(0), usize_to_idx(1)), // a + b 
+                Gate::Const(2+3),                                          // c1 + c2
+                Gate::BinOp(BinOp::Add, usize_to_idx(2), usize_to_idx(3)), // c1_c2 + x
+            ],
+            &[2,4],
+        ),
+        /*
+        * let c1 = 2;
+        * let c2 = 3;
+        * let c3 = 4;
+        * let x = a+b;
+        * let a_c1 = a + c1;
+        * let b_c2 = b + c2;
+        * let a_c1_c2 = a_c1 + c2;   -> (a+c1)+c2 -> a+(c3)
+        * let b_c2_c3 = b_c2 + c3;   -> (a+c1)+c2 -> a+(c3)
+        * let y = a_c1_c2 + b_c2_c3;
+        *
+        * will become 
+        * let x = a+b
+        * let c_fold_12 = ctx.constant(2+3);
+        * let c_fold_23 = ctx.constant(3+4);
+        * // intermediate state constans, won't be in the final circuit.
+        * let a_c1_c2 = a + c_fold_12;
+        * let b_c2_c3 = b + c_fold_23;
+        * let c_fold_12_23 = c_fold_12 + c_fold_23;
+        * let y = x + c_fold_12_23
+        */
+        multiple_reassociations_enables_constant_folding_3_folds_1_round: (
+            &[
+                Gate::Input(0),                                            // a
+                Gate::Input(1),                                            // b
+                Gate::Const(2),                                            // c1
+                Gate::Const(3),                                            // c2
+                Gate::Const(4),                                            // c3
+                Gate::BinOp(BinOp::Add, usize_to_idx(0), usize_to_idx(1)), // a + b 
+                /*6. */Gate::BinOp(BinOp::Add, usize_to_idx(1), usize_to_idx(3)),// b + c2
+                // This will be replaced with b + (c5)
+                /*7. */Gate::BinOp(BinOp::Add, usize_to_idx(6), usize_to_idx(4)),// b_c2 + c3
+                // This will be replaced with (c5) + x
+                /*8. */Gate::BinOp(BinOp::Add, usize_to_idx(7), usize_to_idx(0)),// b_c2_c3 + a
+                // This will be replaced with (c6) + x
+                /*9. */Gate::BinOp(BinOp::Add, usize_to_idx(8), usize_to_idx(2)),// b_c2_c3_a + c1
+            ],
+            &[0,1],
+            &[5,9],
+            &[
+                Gate::Input(0),                                            // a
+                Gate::Input(1),                                            // b
+                Gate::BinOp(BinOp::Add, usize_to_idx(0), usize_to_idx(1)), // a + b 
+                Gate::Const(2+3+4),                                      // c1 + c2 + c3
+                Gate::BinOp(BinOp::Add, usize_to_idx(2), usize_to_idx(3)), // c1_c2_c3 + x
+            ],
+            &[2,4],
         ),
     }
 }

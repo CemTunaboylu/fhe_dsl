@@ -152,7 +152,7 @@ let circuit = ctx.compile(&self, &[output]).expect("to compile");
 
 This is a simplified version of LLVM's or GCCs reassociation pass. Since our circuits currently are simpler (no control-flow trickery yet), ours is a lot simpler but has the same base. 
 
-The idea is that if we have an operation instruction that has an already computed sub-expression (it must an Op node that is of the same operation kind and the operation has to be associative and commutative), thus we reuse that to eliminate unnecessary operations. The algorithm has subtle points which are explained in detail below.
+The idea is that if we have an operation instruction that has an already computed sub-expression (it must be an Op node that is of the same kind and the operation has to be associative and commutative), thus we reuse that to eliminate unnecessary operations. The algorithm has subtle points which are explained in detail below.
 
 ```rust
 let x = a+b;
