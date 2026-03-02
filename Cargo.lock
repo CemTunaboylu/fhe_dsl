@@ -133,6 +133,7 @@ dependencies = [
  "ir",
  "la-arena",
  "op",
+ "parameterized_test",
  "thin-vec",
 ]
 
