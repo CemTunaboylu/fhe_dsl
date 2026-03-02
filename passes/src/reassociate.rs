@@ -243,32 +243,34 @@ fn try_reassociate_candidates(
         (a_op_c, (a_op_b, c))
     };
 
-    let left_op_right = Gate::BinOp(bin_op_of_i, left_right.0, left_right.1);
-    if let Some(already_in) = seen.get(&left_op_right)
-        && !dead[idx_to_usize(*already_in)]
-    {
-        let new_gate = Gate::BinOp(bin_op_of_i, *already_in, b);
-        let reassociation = Reassociation {
-            replacing: *already_in,
-            replaced: i,
-            gate: new_gate,
-            is_lhs: reassociation_candidate.is_lhs,
-        };
-        return Some(reassociation);
+    for to_try in [(left_right, b), (with_mid, other)] {
+        if let Some((new_gate, reassoc_gate_idx)) = form_a_gate(bin_op_of_i, to_try, seen, dead) {
+            let reassociation = Reassociation {
+                replacing: reassoc_gate_idx,
+                replaced: i,
+                gate: new_gate,
+                is_lhs: reassociation_candidate.is_lhs,
+            };
+            return Some(reassociation);
+        }
     }
 
-    let op_with_mid = Gate::BinOp(bin_op_of_i, with_mid.0, with_mid.1);
-    if let Some(already_in) = seen.get(&op_with_mid)
-        && !dead[idx_to_usize(*already_in)]
+    None
+}
+
+fn form_a_gate(
+    bin_op_of_i: BinOp,
+    ops: ((GateIdx, GateIdx), GateIdx),
+    seen: &FxHashMap<Gate, GateIdx>,
+    dead: &[bool],
+) -> Option<(Gate, GateIdx)> {
+    let (new_ops, other) = ops;
+    let new_reassoc_gate = Gate::BinOp(bin_op_of_i, new_ops.0, new_ops.1);
+    if let Some(new_reassoc_gate_idx) = seen.get(&new_reassoc_gate)
+        && !dead[idx_to_usize(*new_reassoc_gate_idx)]
     {
-        let new_gate = Gate::BinOp(bin_op_of_i, *already_in, other);
-        let reassociation = Reassociation {
-            replacing: *already_in,
-            replaced: i,
-            gate: new_gate,
-            is_lhs: reassociation_candidate.is_lhs,
-        };
-        return Some(reassociation);
+        let new_gate = Gate::BinOp(bin_op_of_i, *new_reassoc_gate_idx, other);
+        return Some((new_gate, *new_reassoc_gate_idx));
     }
     None
 }
