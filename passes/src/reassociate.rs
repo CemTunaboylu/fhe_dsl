@@ -67,25 +67,7 @@ pub fn reuse_driven_reassociate(circuit: &Circuit) -> Circuit {
         seen.insert(gate, gate_idx);
     }
 
-    dbg!(&liveness_wrt_usage);
-    // When thombstone is a Gate, it's operands if necessary, should have their usages change.
-    for to_kill_idx in liveness_wrt_usage.get_killing_list() {
-        let dead_idx = idx_to_usize(*to_kill_idx);
-        dead[dead_idx] = true;
-        // Propagate Thombstones if operans are only used by this.
-        if let Gate::BinOp(_bin_op, lhs, rhs) = gates[*to_kill_idx] {
-            for operand in [lhs, rhs] {
-                if liveness_wrt_usage.num_usage(operand) == 0 {
-                    gates[operand] = Gate::Thombstone;
-                }
-            }
-        }
-        gates[*to_kill_idx] = Gate::Thombstone;
-    }
-
-    dbg!(&gates);
-    dbg!(&liveness_wrt_usage);
-    // liveness_wrt_usage.clear();
+    kill_unused_gates(&mut liveness_wrt_usage, &mut dead, &mut gates);
 
     // input indices may have changed
     let mut inputs = ThinVec::with_capacity(circuit.inputs().len());
@@ -142,6 +124,28 @@ pub fn reuse_driven_reassociate(circuit: &Circuit) -> Circuit {
     }
 
     Circuit::with(circuit.q, alive_gates, inputs, outputs)
+}
+
+fn kill_unused_gates(
+    liveness_wrt_usage: &mut LivenessWRTUsage,
+    dead: &mut [bool],
+    gates: &mut Arena<Gate>,
+) {
+    // When thombstone is a Gate, it's operands if necessary, should have their usages change.
+    for to_kill_idx in liveness_wrt_usage.get_killing_list() {
+        let dead_idx = idx_to_usize(*to_kill_idx);
+        dead[dead_idx] = true;
+        // Propagate Thombstones if operans are only used by this.
+        if let Gate::BinOp(_bin_op, lhs, rhs) = gates[*to_kill_idx] {
+            for operand in [lhs, rhs] {
+                if liveness_wrt_usage.num_usage(operand) == 0 {
+                    gates[operand] = Gate::Thombstone;
+                }
+            }
+        }
+        gates[*to_kill_idx] = Gate::Thombstone;
+    }
+    liveness_wrt_usage.clear();
 }
 
 #[derive(Debug)]
