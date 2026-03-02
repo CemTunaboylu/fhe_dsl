@@ -5,7 +5,7 @@ This project is a simple DSL for building FHE circuits from arbitrary code perfo
 We currently perform 5 optimizations, 2 of which is algebraic simplifications:
 - Constant folding
 - Common Sub-Expression Elimination (via hash-consing)
-- Dead-code Elimination
+- [Three-Shaking a.k.a Live Code Inclusion](https://medium.com/@Rich_Harris/tree-shaking-versus-dead-code-elimination-d3765df85c80)
 - Reuse-driven reassociation 
 - Tree balancing reassociation (WIP)
 
@@ -123,7 +123,9 @@ let input_plus_input_plus_constant = &input + (&input + &constant);
 // &input + (&input + &constant) -> &input + &input_plus_constant
 ```
 
-## Dead-code Elimination
+## Tree-shaking - Live Code Inclusion
+
+I first wrote it as Dead-code Elimination on top of my head but I realise taht what we are performing is Live Code Inclusion. Compilation step starts with outputs, we know which `ExprHandle`s to start from. Thus it is not trying to find dead code, it is finding live code by traversing the graph in a post-order fashion. We are picking live expressions and lowering them to IR gates. 
 
 ```rust
 let q = 11;
@@ -138,7 +140,7 @@ let c2 = ctx.constant(9);
 // Since the value of c1 and c2 is known at compile time, it will not register an Op but perform the operation directly and instead registers a constant node with value 10.
 let output = c1+c2;
 
-// Since above (c1+c2) is not an Op node anymore, c1 and c2 is useless, i.e. they are not in the graph, they cannot be reached from the outputs.
+// Since above (c1+c2) is not an Op node anymore, c1 and c2 is not alive anymore, in other terms, if we start traversing the graph in reverse from the output, c1 and c2 are unreachable from output node. 
 let circuit = ctx.compile(&self, &[output]).expect("to compile"); 
 
 // At this point, c1 and c2 constant nodes are not in the circuit anymore and compilation is successful because context has a compilation mode that allows such optimizations.
