@@ -21,15 +21,10 @@ use crate::{idx_to_usize, liveness::LivenessWRTUsage, usize_to_idx};
 * a+c+b -> a+b+c -> x+c
 */
 pub fn reuse_driven_reassociate(circuit: &Circuit) -> Circuit {
-    let len_gates = circuit.gates().len();
-
-    let mut liveness_wrt_usage = LivenessWRTUsage::new(len_gates);
-    let mut dead = vec![false; len_gates];
-    // From Gate to idx index to be able to reassociate with already computed Ops.
-    let mut seen: FxHashMap<Gate, GateIdx> = FxHashMap::with_hasher(FxBuildHasher::default());
     let mut gates = circuit.gates().clone();
+    let mut dead = vec![false; gates.len()];
 
-    let operation_gates = record_gate_relationships(&gates, &mut liveness_wrt_usage, &mut seen);
+    let (operation_gates, mut liveness_wrt_usage, mut seen) = gate_relationships(&gates);
 
     let mut reassociated = true;
     while reassociated {
@@ -69,13 +64,16 @@ fn is_op_associative_and_commutative(bin_op_of_i: BinOp) -> bool {
     bin_op_of_i.is_associative() && bin_op_of_i.is_commutative()
 }
 
-fn record_gate_relationships(
+fn gate_relationships(
     gates: &Arena<Gate>,
-    liveness_wrt_usage: &mut LivenessWRTUsage,
-    seen: &mut FxHashMap<Gate, GateIdx>,
-) -> ThinVec<GateIdx> {
+) -> (ThinVec<GateIdx>, LivenessWRTUsage, FxHashMap<Gate, GateIdx>) {
     let mut operation_gates = ThinVec::<GateIdx>::new();
     let len_gates = gates.len();
+
+    let mut liveness_wrt_usage = LivenessWRTUsage::new(len_gates);
+    // From Gate to idx index to be able to reassociate with already computed Ops.
+    let mut seen: FxHashMap<Gate, GateIdx> = FxHashMap::with_hasher(FxBuildHasher::default());
+
     for idx in 0..len_gates {
         let gate_idx = usize_to_idx(idx);
         let gate = gates[gate_idx];
@@ -91,7 +89,7 @@ fn record_gate_relationships(
         }
         seen.insert(gate, gate_idx);
     }
-    operation_gates
+    (operation_gates, liveness_wrt_usage, seen)
 }
 
 fn kill_unused_gates(
@@ -400,7 +398,6 @@ mod test {
         )
         .expect("to have a reassociation candidate");
 
-        dbg!(&reassociation_candidate);
         assert!(!reassociation_candidate.is_lhs);
 
         // b+(c+a)
@@ -438,7 +435,7 @@ mod test {
                 new_circuit.gates()
             );
             assert_eq!(new_circuit.inputs(), circuit.inputs());
-            let expected_outputs = thin_vec![usize_to_idx(3), usize_to_idx(4)];
+            let expected_outputs = ThinVec::from_iter(expected_outputs.iter().cloned().map(usize_to_idx));
             assert_eq!(expected_outputs, new_circuit.outputs());
         }
     }
@@ -653,6 +650,45 @@ mod test {
                 Gate::BinOp(BinOp::Add, usize_to_idx(1), usize_to_idx(2)), // a + b
             ],
             &[3,4],
+        ),
+        /*
+        * let x = a+c;
+        * let z = b+d;
+        * let add_1 = a+b;
+        * let add_2 = add_1 + c;
+        * let y = add_2 + d;
+        *
+        * stays the same
+        * let x = a+c;
+        * let z = b+d;
+        * let y = ((a+c)+b)+d;
+        */
+        multiple_reassocations: (
+            &[
+                Gate::Input(0),                                            // a
+                Gate::Input(1),                                            // b
+                Gate::Input(2),                                            // c
+                Gate::Input(3),                                            // d
+                Gate::BinOp(BinOp::Add, usize_to_idx(0), usize_to_idx(2)), // a + c
+                Gate::BinOp(BinOp::Add, usize_to_idx(1), usize_to_idx(3)), // b + d
+                // will be removed
+                Gate::BinOp(BinOp::Add, usize_to_idx(0), usize_to_idx(1)), // a + b
+                Gate::BinOp(BinOp::Add, usize_to_idx(6), usize_to_idx(2)), // (a+b)+c
+                Gate::BinOp(BinOp::Add, usize_to_idx(7), usize_to_idx(3)), // ((a+b)+c)+d
+            ],
+            &[0,1,2,3],
+            &[4,5,8],
+            &[
+                Gate::Input(0),                                            // a
+                Gate::Input(1),                                            // b
+                Gate::Input(2),                                            // c
+                Gate::Input(3),                                            // d
+                Gate::BinOp(BinOp::Add, usize_to_idx(0), usize_to_idx(2)), // a + c
+                Gate::BinOp(BinOp::Add, usize_to_idx(1), usize_to_idx(3)), // b + d
+                Gate::BinOp(BinOp::Add, usize_to_idx(4), usize_to_idx(1)), // (a + c) + b
+                Gate::BinOp(BinOp::Add, usize_to_idx(6), usize_to_idx(3)), // ((a+b)+c)+d
+            ],
+            &[4,5,7],
         ),
     }
 }
