@@ -24,40 +24,65 @@ pub fn reuse_driven_reassociate(circuit: &Circuit) -> Circuit {
     let len_gates = circuit.gates().len();
 
     let mut liveness_wrt_usage = LivenessWRTUsage::new(len_gates);
-
     let mut dead = vec![false; len_gates];
     // From Gate to idx index to be able to reassociate with already computed Ops.
     let mut seen: FxHashMap<Gate, GateIdx> = FxHashMap::with_hasher(FxBuildHasher::default());
     let mut gates = circuit.gates().clone();
 
+    let operation_gates = record_gate_relationships(&gates, &mut liveness_wrt_usage, &mut seen);
+
+    let mut reassociated = true;
+    while reassociated {
+        reassociated = false;
+        // Loop over recorded Ops instead of all the gates.
+        for idx in 0..operation_gates.len() {
+            let gate_idx = operation_gates[idx];
+            let mut gate = gates[gate_idx];
+            // We search for I = ((a op b) op c) or (a op (b op c)) to try associate.
+            if let Gate::BinOp(bin_op_of_i, lhs_idx, rhs_idx) = gate
+            // To reassociate, we need associativity and commutativity 
+            && is_op_associative_and_commutative(bin_op_of_i)
+            && let Some(reassociation_candidates) =
+                        extract_reassociation_candidates(circuit, bin_op_of_i, lhs_idx, rhs_idx)
+            // We want the instruction we plan to rewrite is to be used once. 
+            // The 'why' of this is explain in the wiki.
+            && liveness_wrt_usage.num_usage(reassociation_candidates.instruction_to_rewrite) <= 1
+            && let Some(reassociation) = try_reassociate_candidates(reassociation_candidates, bin_op_of_i, &seen, &dead)
+            {
+                gates[gate_idx] = reassociation.gate;
+                seen.remove(&gate);
+                liveness_wrt_usage.increment(reassociation.replacing, gate_idx);
+                liveness_wrt_usage.decrement(reassociation.replaced, gate_idx);
+                gate = reassociation.gate;
+                seen.insert(gate, gate_idx);
+                reassociated = true;
+            }
+        }
+        // TODO: remove Thombstoned indices from operation_gates
+        kill_unused_gates(&mut liveness_wrt_usage, &mut dead, &mut gates);
+    }
+
+    new_reassociated_circuit_from(circuit, &mut gates, &liveness_wrt_usage)
+}
+
+fn is_op_associative_and_commutative(bin_op_of_i: BinOp) -> bool {
+    bin_op_of_i.is_associative() && bin_op_of_i.is_commutative()
+}
+
+fn record_gate_relationships(
+    gates: &Arena<Gate>,
+    liveness_wrt_usage: &mut LivenessWRTUsage,
+    seen: &mut FxHashMap<Gate, GateIdx>,
+) -> ThinVec<GateIdx> {
+    let mut operation_gates = ThinVec::<GateIdx>::new();
+    let len_gates = gates.len();
     for idx in 0..len_gates {
         let gate_idx = usize_to_idx(idx);
-        let mut gate = gates[gate_idx];
+        let gate = gates[gate_idx];
         match gate {
             Gate::Input(_) | Gate::Const(_) | Gate::Thombstone => {}
-            // We search for I = ((a op b) op c) or (a op (b op c)) to try associate.
-            Gate::BinOp(bin_op_of_i, mut lhs_idx, mut rhs_idx) => {
-                let is_ac = bin_op_of_i.is_associative() && bin_op_of_i.is_commutative();
-                if is_ac
-                    && let Some(reassociation_candidates) =
-                        extract_reassociation_candidates(circuit, bin_op_of_i, lhs_idx, rhs_idx)
-                    // We want the instruction we plan to rewrite is to be used once. 
-                    // The 'why' of this is explain in the wiki.
-                    && liveness_wrt_usage.num_usage(reassociation_candidates.instruction_to_rewrite) <= 1
-                    && let Some(reassociation) = try_reassociate_candidates(reassociation_candidates, bin_op_of_i, &seen, &dead)
-                {
-                    gates[gate_idx] = reassociation.gate;
-                    seen.remove(&gate);
-                    liveness_wrt_usage.increment(reassociation.replacing, gate_idx);
-                    liveness_wrt_usage.decrement(reassociation.replaced, gate_idx);
-                    gate = reassociation.gate;
-                    if reassociation.is_lhs {
-                        lhs_idx = reassociation.replacing;
-                    } else {
-                        rhs_idx = reassociation.replacing;
-                    }
-                }
-                dbg!(&liveness_wrt_usage);
+            Gate::BinOp(_, lhs_idx, rhs_idx) => {
+                operation_gates.push(gate_idx);
                 // Update the operands usages by adding this gate to the set.
                 for operand in [lhs_idx, rhs_idx] {
                     liveness_wrt_usage.increment(operand, gate_idx);
@@ -66,10 +91,7 @@ pub fn reuse_driven_reassociate(circuit: &Circuit) -> Circuit {
         }
         seen.insert(gate, gate_idx);
     }
-
-    kill_unused_gates(&mut liveness_wrt_usage, &mut dead, &mut gates);
-
-    new_reassociated_circuit_from(circuit, &mut gates, &liveness_wrt_usage)
+    operation_gates
 }
 
 fn kill_unused_gates(
@@ -224,7 +246,6 @@ struct Reassociation {
     replacing: GateIdx,
     replaced: GateIdx,
     gate: Gate,
-    is_lhs: bool,
 }
 
 fn try_reassociate_candidates(
@@ -260,7 +281,6 @@ fn try_reassociate_candidates(
                 replacing: reassoc_gate_idx,
                 replaced: i,
                 gate: new_gate,
-                is_lhs: reassociation_candidate.is_lhs,
             };
             return Some(reassociation);
         }
