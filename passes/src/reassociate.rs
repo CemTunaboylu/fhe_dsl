@@ -172,7 +172,7 @@ fn learn_topology_of(
     let len_gates = gates.len();
 
     let mut liveness_wrt_usage = LivenessWRTUsage::new(len_gates);
-    // From Gate to idx index to be able to reassociate with already computed Ops.
+    // From Gate to index to be able to reassociate with already computed Ops.
     let mut seen: FxHashMap<Gate, GateIdx> = FxHashMap::with_hasher(FxBuildHasher::default());
 
     for idx in 0..len_gates {
@@ -194,6 +194,8 @@ fn learn_topology_of(
         seen.insert(gate, gate_idx);
     }
 
+    // To ensure that outputs are immune to killing, we add the outputs to it's own usages list so
+    // that it is never deleted or reassociated away.
     for out_idx in circuit.outputs() {
         liveness_wrt_usage.increment(*out_idx,* out_idx);
     }
