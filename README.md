@@ -1,3 +1,7 @@
+![Rust Version](https://img.shields.io/badge/Rust-1.92.0-orange)
+
+![MSRV](https://img.shields.io/badge/MSRV-1.92-orange)
+
 # Fully Homomorphic Encryption Domain Specific Language
 
 This project is a simple DSL for building FHE circuits from arbitrary code performing arithmetic operations. By overloading operations of full-homomorphism (addition, subtraction and multiplication), we build an arithmetic circuit of each. Currently only `u64` is supported, but `float` is on the way.
@@ -125,7 +129,7 @@ let input_plus_input_plus_constant = &input + (&input + &constant);
 
 ## Tree-shaking - Live Code Inclusion
 
-I first wrote it as Dead-code Elimination on top of my head but I realise taht what we are performing is Live Code Inclusion. Compilation step starts with outputs, we know which `ExprHandle`s to start from. Thus it is not trying to find dead code, it is finding live code by traversing the graph in a post-order fashion. We are picking live expressions and lowering them to IR gates. 
+I first wrote it as Dead-code Elimination on top of my head but I realise that what we are performing is Live Code Inclusion. Compilation step starts with outputs, we know which `ExprHandle`s to start from. Thus it is not trying to find dead code, it is finding live code by traversing the graph in a post-order fashion. We are picking live expressions and lowering them to IR gates. 
 
 ```rust
 let q = 11;

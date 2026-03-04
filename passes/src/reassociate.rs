@@ -74,7 +74,7 @@ impl ReassociationPass {
             Reassociation::Folding { new_root, folded_gate, replacing_index, usage_update } => {
                 let discarded = self.gates[replacing_index]; 
                 self.seen.remove(&discarded);
-                // Remove usage of the discarded by rewritten root, and progate this to it's
+                // Remove usage of the discarded by rewritten root, and propagate this to it's
                 // children recursively. It will be put replacing_index into killing list but once 
                 // we increment it's usage again, it will be remove from the killing list.
                 self.propagated_decrement(replacing_index, rewritten_root_op_gate_idx);
@@ -110,9 +110,11 @@ impl ReassociationPass {
         // When thombstone is a Gate, it's operands if necessary, should have their usages change.
         for to_kill_idx in self.liveness_wrt_usage.get_killing_list() {
             let dead_idx = idx_to_usize(*to_kill_idx);
-            if self.dead[dead_idx] {continue;}
+            if self.dead[dead_idx] { continue; }
             self.dead[dead_idx] = true;
+
             let to_kill = self.gates[*to_kill_idx]; 
+
             match to_kill {
                 Gate::Input(_) => {},
                 Gate::Const(_) => {
@@ -127,9 +129,8 @@ impl ReassociationPass {
                         }
                     }
                 },
-                Gate::Thombstone => {
-                    dbg!(to_kill_idx);
-                },
+                // A thombstone never will be in the killing list. 
+                Gate::Thombstone => unreachable!(),
             }
             self.seen.remove(&to_kill);
             self.gates[*to_kill_idx] = Gate::Thombstone;
@@ -228,7 +229,7 @@ pub fn reuse_driven_reassociate(circuit: &Circuit) -> Circuit {
 
 fn new_reassociated_circuit_from(
     circuit: &Circuit,
-    mut reassocation_pass: ReassociationPass,
+    mut reassociation_pass: ReassociationPass,
 ) -> Circuit {
     // input indices may have changed
     let mut inputs = ThinVec::with_capacity(circuit.inputs().len());
@@ -241,13 +242,13 @@ fn new_reassociated_circuit_from(
     // order, it is guaranteed that any Operation using an operand comes after it.
     let mut old_outputs = FxHashSet::from_iter(circuit.outputs().iter());
 
-    for idx in 0..reassocation_pass.gates.len() {
-        if reassocation_pass.dead[idx] {
+    for idx in 0..reassociation_pass.gates.len() {
+        if reassociation_pass.dead[idx] {
             continue;
         } 
 
         let gate_idx = usize_to_idx(idx);
-        let gate = reassocation_pass.gates[gate_idx];
+        let gate = reassociation_pass.gates[gate_idx];
 
         let new_gate_idx = alive_gates.alloc(gate);
 
@@ -264,12 +265,12 @@ fn new_reassociated_circuit_from(
             continue;
         }
 
-        for user in reassocation_pass.liveness_wrt_usage.get_usages(gate_idx) {
+        for user in reassociation_pass.liveness_wrt_usage.get_usages(gate_idx) {
             // Outputs are self-used to prevent them being killed.
             if is_an_output && *user == gate_idx {
                 continue;
             }
-            let mut user_gate = reassocation_pass.gates[*user];
+            let mut user_gate = reassociation_pass.gates[*user];
             match &mut user_gate {
                 // NOTE: A gate user cannot be a constant or an input, their in-degree is 0.
                 Gate::Input(_) | Gate::Const(_) => unreachable!(),
@@ -285,7 +286,7 @@ fn new_reassociated_circuit_from(
                     *replace = new_gate_idx;
                 }
             }
-            reassocation_pass.gates[*user] = user_gate;
+            reassociation_pass.gates[*user] = user_gate;
         }
     }
     Circuit::with(circuit.q, alive_gates, inputs, outputs)
@@ -381,15 +382,15 @@ fn try_reassociate_candidates(
         instruction_to_reassociate: instruction_to_rewrite ,
     } = reassociation_candidate;
 
-    // TODO: I can do this during extraction
     // i) ((a op b) op c) -> try (a op c) and (b op c)
-    // ii) (a op (b op c)) -> (a op c) and (a op b) for ii.
     // left_right is the common (a op c), mid_other is (b op c) or (a op b)
     let (left_right, (with_mid, other)) = if is_lhs {
         let a_op_c = (a, c);
         let b_op_c = (b, c);
         (a_op_c, (b_op_c, a))
-    } else {
+    } 
+    // ii) (a op (b op c)) -> (a op c) and (a op b) for ii.
+    else {
         let a_op_c = (a, c);
         let a_op_b = (a, b);
         (a_op_c, (a_op_b, c))
@@ -481,9 +482,9 @@ mod test {
 
         let circuit = Circuit::with(q, Arena::from_iter(gates.iter().cloned()), inputs, outputs);
 
-        let mut reassocation_pass = ReassociationPass::new(&circuit);
+        let mut reassociation_pass = ReassociationPass::new(&circuit);
         let reassociation_candidate = extract_reassociation_candidates(
-            &reassocation_pass.gates,
+            &reassociation_pass.gates,
             BinOp::Add,
             usize_to_idx(4),
             usize_to_idx(1),
@@ -503,7 +504,7 @@ mod test {
         let new_gate = Gate::BinOp(BinOp::Add, usize_to_idx(3), usize_to_idx(2));
 
         let reassociation =
-            try_reassociate_candidates(reassociation_candidate, BinOp::Add, &mut reassocation_pass)
+            try_reassociate_candidates(reassociation_candidate, BinOp::Add, &mut reassociation_pass)
                 .expect("to reassociate");
 
         match reassociation {
@@ -533,9 +534,9 @@ mod test {
 
         let circuit = Circuit::with(q, Arena::from_iter(gates.iter().cloned()), inputs, outputs);
 
-        let mut reassocation_pass = ReassociationPass::new(&circuit);
+        let mut reassociation_pass = ReassociationPass::new(&circuit);
         let reassociation_candidate = extract_reassociation_candidates(
-            &reassocation_pass.gates,
+            &reassociation_pass.gates,
             BinOp::Add,
             usize_to_idx(1),
             usize_to_idx(4),
@@ -556,7 +557,7 @@ mod test {
         let new_gate = Gate::BinOp(BinOp::Add, usize_to_idx(3), usize_to_idx(0));
 
         let reassociation =
-            try_reassociate_candidates(reassociation_candidate, BinOp::Add, &mut reassocation_pass)
+            try_reassociate_candidates(reassociation_candidate, BinOp::Add, &mut reassociation_pass)
                 .expect("to reassociate");
 
         match reassociation {
@@ -891,7 +892,7 @@ mod test {
         * let x = a+b
         * let c_fold_12 = ctx.constant(2+3);
         * let c_fold_23 = ctx.constant(3+4);
-        * // intermediate state constans, won't be in the final circuit.
+        * // intermediate state constants, won't be in the final circuit.
         * let a_c1_c2 = a + c_fold_12;
         * let b_c2_c3 = b + c_fold_23;
         * let c_fold_12_23 = c_fold_12 + c_fold_23;
