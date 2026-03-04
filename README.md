@@ -1,88 +1,192 @@
-![Rust Version](https://img.shields.io/badge/Rust-1.92.0-orange)
+# Tiny FHE DSL (Tiny Fully Homomorphic Encryption Circuit Builder)
 
-![MSRV](https://img.shields.io/badge/MSRV-1.92-orange)
+![Rust Version](https://img.shields.io/badge/Rust-1.92.0-orange) ![MSRV](https://img.shields.io/badge/MSRV-1.92-orange)
 
-# Fully Homomorphic Encryption Domain Specific Language
+This repository is an experiment in building Fully Homomorphic Encryption circuits from normal-looking Rust arithmetic.
 
-This project is a simple DSL for building FHE circuits from arbitrary code performing arithmetic operations. By overloading operations of full-homomorphism (addition, subtraction and multiplication), we build an arithmetic circuit of each. Currently only `u64` is supported, but `float` is on the way.
+The idea is simple, you write some arithmetic like:
 
-We currently perform 5 optimizations, 2 of which is algebraic simplifications:
-- Constant folding
-- Common Sub-Expression Elimination (via hash-consing)
-- [Three-Shaking a.k.a Live Code Inclusion](https://medium.com/@Rich_Harris/tree-shaking-versus-dead-code-elimination-d3765df85c80)
-- Reuse-driven reassociation 
-- Tree balancing reassociation (WIP)
+```rust
+let output = input_1 * input_2 + const_1 * const_2;
+```
 
-Constant folding and Common Sub-Expression Elimination is performed from the start in DSL. It is to keep the gate counts as minimal as possible from the start. We could keep it separate but I wanted an optimization to take place if we can identify that it can be done immediately.   
+And instead of directly computing it, we build a circuit in the background representing the computation. Later, a backend can evaluate the circuit against arbitrary inputs. In simple terms it is like a tiny compiler for encrypted arithmetic. Your Rust arithmetic becomes a compiler pipeline for encrypted math.
 
-We eliminate dead code when we compile the `dsl::Context` into `ir::Circuit` by depth-first post-order traversing from root to leaf nodes. Any node that cannot be reached from output nodes are eliminated. 
+## Why This Exists
+
+Simply, Fully Homomorphic Encryption (FHE) allows computation on encrypted data. But there’s a catch: every arithmetic operation is very expensive.
+
+So before executing anything, we want to:
+
+- reduce the number of operations
+- simplify expressions
+- eliminate duplicates
+- rebalance trees
+
+This project experiments with building a tiny compiler pipeline that performs those optimizations automatically.
+
+The goals:
+
+- learning/exploring more compiler techniques
+- experiment with FHE-friendly circuits
+- keep the DSL ergonomic
+
+And because writing compilers for encrypted math is fun.
+
+It is an active experiment/learning project.
+
+Things will break.
+Probably often.
+
+## What does it do?
+
+The DSL overloads arithmetic operators (+ - *, fully homomorphic operations) and builds an arithmetic circuit. While doing that, it quietly performs some optimizations so the circuit doesn’t explode in size. It currently only supports `u64`, but `float` is on the way.
+
+Current optimizations:
+
+- **Constant Folding**: `2+3` becomes `5` via compile time evaluation
+- **Common Subexpression Elimination**: (via hash-consing) If you compute the same thing twice, we reuse it.
+- [**Tree Shaking** a.k.a Live Code Inclusion](https://medium.com/@Rich_Harris/tree-shaking-versus-dead-code-elimination-d3765df85c80) (dead code removal): If something doesn’t contribute to the outputs, it disappears.
+- **Reuse-driven reassociation**: More complex subexpression elimination, operations are re-arranged i.e. reassociated to reuse already existing operations.
+- **Tree balancing reassociation** (work in progress): The depth of the circuit as a tree is reduced.
+
+The goal is simple:
+fewer gates = cheaper encrypted computation. It is important that we do as less as we can, and do it with minimal depth for fully homomorphic encryption because each operation has a cost incurred in terms of noise.
+
+🔑 The last 2 optimizations are called algebraic simplifications, and are explained in detail in the wiki.
+
+### Quick Example
 
 ```rust
 let q = 11;
-// ctx is a RefCell that is wrapped in RC so that handles can reach it to register nodes. 
-let ctx : ContextHandle = new_folding_strict_context(q);
+
+let ctx = new_folding_strict_context(q);
 
 let i1 = ctx.input(0);
 let i2 = ctx.input(1);
 
-// more variables and operations 
-...
+let output = &i1 * &i2 + &i1;
 
-// ContextHandle's expose 2 methods 
-
-let output = i1*i2; // arbitrary arithmetic operations assigned to the final handle 
-// Dead-code elimination takes place during compilation, DFS from output eliminates unreachable nodes
-let circuit = ctx.compile(&self, output).expect("to compile"); 
-
-// OR 
-
-let output_1 = i1*i2; // arbitrary arithmetic operations assigned to the final handle 
-let output_2 = i1+i2; // arbitrary arithmetic operations assigned to the final handle 
-let output_3 = i1-i2// arbitrary arithmetic operations assigned to the final handle 
-
-// Dead-code elimination takes place during compilation, DFS from each output eliminates unreachable nodes
-let circuit = ctx.compile_many(&self, &[output_1, output_2, output_3]).expect("to compile"); 
-
-// After compilation, the circuit can be used with an appropriate Backend as follows
-let mut mock_fhe = MockFHEBackend::new(noise_budget);
-let results = mock_fhe 
-    // The inputs &[1,1] corresponding the above inputs each index (0,1) will take that element at that index as an input value.
-    .eval_outputs(&circuit, &[1, 1])
-    .expect("should have evaluated");
+let circuit = ctx.compile(output).expect("should compile");
 ```
 
-## What we are supporting 
-- dynamic compilation modes
-- multiple evaluation of the same circuit
-- batched execution (wip)
-- parallel execution (wip)
-
-## General View 
-
-The main library module to start arbitrary computations is `dsl`. It exposes helper functions to quickly create contexts with `Loose` and `Strict` compilation modes. For more dynamic and granular control over compilation modes, we expose 2 structures.
+At this point we now have a circuit instead of a number.
 
 ```rust
-#[derive(Clone, Debug, Default, Sequence)]
+let mut mock_fhe = MockFHEBackend::new(noise_budget);
+
+let result = mock_fhe
+    .eval_outputs(&circuit, &[1, 1])
+    .expect("should evaluate");
+```
+
+Inputs correspond to the indices used when defining inputs. You can also implement your own backend to evaluate circuits.
+
+### Multiple Outputs
+
+You can also compile multiple outputs at once:
+
+```rust
+let output1 = i1 * i2;
+let output2 = i1 + i2;
+let output3 = i1 - i2;
+
+let circuit = ctx.compile_many(&[output1, output2, output3]).unwrap();
+```
+
+Only the nodes required to compute those outputs survive compilation. Everything else is removed.
+
+## Architecture (bird’s eye view)
+
+```
+DSL expressions
+      ↓
+Arithmetic DAG
+      ↓
+Optimization passes
+      ↓
+IR circuit
+      ↓
+Optimization passes
+      ↓
+Backend execution
+```
+
+### What the DSL Actually Builds
+
+```rust
+let out = a * b + a;
+```
+
+The DSL constructs a graph like this:
+
+```
+    (+)
+   /   \
+ (*)    a
+ / \
+a   b
+```
+
+And the circuit is like this:
+
+```
+Input a ───┐
+           │
+           ▼
+        Multiply ────┐
+           ▲         │
+           │         ▼
+Input b ───┘       Add ──→ Output
+                    ▲
+                    │
+                 Input a
+
+```
+
+## Compilation Modes
+
+The DSL supports strictness modes controlling what is allowed during construction.
+
+```rust
 pub enum StrictnessOn {
-    #[default]
     Input,
     Const,
     Op,
 }
 
-#[derive(Clone, Debug, Default)]
 pub struct Strictness(u8);
 ```
 
-`Strictness` ensures that any unused provided target (`Input`, `Const` or `Op`) prevents the circuit to compile with appropriate errors indicating which ones are unused. In a `Loose`context, any unused target is optimized - no worries - but we may want to know them thus the structures. `Strictness` structures support `+` and `-` to easily combine them, adding means including the strictness, subtracting is excluding i.e. loosening the strictness. 
+This mainly exists so you can control how aggressively the DSL enforces correctness during graph construction. You can ignore it if you just want to build circuits quickly. `dsl` module exposes helper functions to quickly create contexts with `Loose` and `Strict` compilation modes.
+
+`Strictness` ensures that any unused provided target (`Input`, `Const` or `Op`) prevents the circuit from compilation with an error indicating which ones are unused. In a `Loose`context, any unused target is optimized - no worries - but we may want to know them thus the structures. `Strictness` structures support `+` and `-` to easily combine them, adding means including the strictness, subtracting is excluding i.e. loosening the strictness.
 
 ```rust
     let strictness: Strictness = (StrictnessOn::Input + StrictnessOn::Op).into();
 ```
 
-The circuits are registers each value in a Static Single Assignment form. This means that each variable is only assigned once to enable aggressive optimizations and easier data flow graphs. 
+## Current Limitations
 
-## Constant folding 
+- Only u64 arithmetic
+- No real FHE backend yet
+- Tree balancing pass is still cooking
+- Batched execution not finished
+- Parallel evaluation not finished
+
+They are all in the todo list...
+
+## Details
+
+### Optimizations
+
+- Constant folding and Common Sub-Expression Elimination is performed from the start in DSL. It is to keep the gate counts as minimal as possible from the start. We could keep it separate but I wanted an optimization to take place if we can identify that it can be done immediately.
+
+- We eliminate dead code when we compile the `dsl::Context` into `ir::Circuit` by depth-first post-order traversing from root to leaf nodes. Any node that cannot be reached from output nodes are eliminated.
+
+- The circuits are registers where each value in a Static Single Assignment form. This means that each variable is only assigned once to enable aggressive optimizations and easier data flow graphs.
+
+#### Constant folding
 
 We evaluate expressions with known values at compile time.
 
@@ -105,7 +209,7 @@ let c2 = ctx.constant(9);
 let add_c1_c2 = c1+c2;
 ```
 
-## Common Sub-Expression Elimination
+#### Common Sub-Expression Elimination
 
 If we identify an expression that is repeating, we don't register the same expression but rather point to the already formed expression.  
 
@@ -127,9 +231,9 @@ let input_plus_input_plus_constant = &input + (&input + &constant);
 // &input + (&input + &constant) -> &input + &input_plus_constant
 ```
 
-## Tree-shaking - Live Code Inclusion
+#### Tree-shaking - Live Code Inclusion
 
-I first wrote it as Dead-code Elimination on top of my head but I realise that what we are performing is Live Code Inclusion. Compilation step starts with outputs, we know which `ExprHandle`s to start from. Thus it is not trying to find dead code, it is finding live code by traversing the graph in a post-order fashion. We are picking live expressions and lowering them to IR gates. 
+I first wrote it as Dead-code Elimination on top of my head but I realise that what we are performing is Live Code Inclusion. Compilation step starts with outputs, we know which `ExprHandle`s to start from. Thus it is not trying to find dead code, it is finding live code by traversing the graph in a post-order fashion. We are picking live expressions and lowering them to IR gates.
 
 ```rust
 let q = 11;
@@ -150,13 +254,13 @@ let circuit = ctx.compile(&self, &[output]).expect("to compile");
 // At this point, c1 and c2 constant nodes are not in the circuit anymore and compilation is successful because context has a compilation mode that allows such optimizations.
 ```
 
-## Algebraic simplifications
+### Algebraic simplifications
 
-### Reuse-driven reassociation 
+#### Reuse-driven reassociation
 
-This is a simplified version of LLVM's or GCCs reassociation pass. Since our circuits currently are simpler (no control-flow trickery yet), ours is a lot simpler but has the same base. 
+This is a simplified version of LLVM's or GCCs reassociation pass. Since our circuits currently are simpler (no control-flow trickery yet), ours is a lot simpler but has the same idea.
 
-The idea is that if we have an operation instruction that has an already computed sub-expression (it must be an Op node that is of the same kind and the operation has to be associative and commutative), thus we reuse that to eliminate unnecessary operations. The algorithm has subtle points which are explained in detail below.
+If we have an operation instruction that has an already computed sub-expression (it must be an Op node that is of the same kind and the operation has to be associative and commutative), we reuse that to eliminate unnecessary operations. The algorithm has subtle points which are explained in wiki.
 
 ```rust
 let x = a+b;
@@ -192,8 +296,8 @@ let y = (c_fold+a)+b;
 // the intermediate c_fold_a node is eliminated.
 let y = c_fold+x;
 ```
-### Tree balancing reassociation (WIP)
 
+#### Tree balancing reassociation (WIP)
 
 ```rust
 let x = a+b+c+d+e+f+g+h;
@@ -219,9 +323,9 @@ let x = a+b+c+d+e+f+g+h;
 // after the balancing reassociation pass, it becomes 
 // ((a+b)+(c+d))+((e+f)+(g+h)) which is left heavy tree, a linked list
 /* 
-          +
-        /   \
-       L     R
+              +
+            /   \
+           L     R
 
        L            R
      /   \        /  \ 
@@ -241,7 +345,3 @@ let y = y1+y2;
 
 let output = x + y;
 ```
-## Reuse-driven reassociation algorithm
-## Tree balancing reassociation algorithm
-
-
