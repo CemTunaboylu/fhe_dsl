@@ -8,8 +8,6 @@ use thin_vec::{ThinVec, thin_vec};
 
 use crate::{folding, is_op_associative_and_commutative,  idx_to_usize, liveness::LivenessWRTUsage, usize_to_idx};
 
-// TODO: Housekeeping: Update operation_gates after the pass, 
-
 #[derive(Debug)]
 struct ReassociationPass {
     q: SupportedType,
@@ -21,7 +19,6 @@ struct ReassociationPass {
     constant_gates: FxHashSet<GateIdx>,
 }
 
-// TODO: when a gate is dead, propagate death to its children, as the whole sub-tree
 impl ReassociationPass {
     fn new(circuit: &Circuit) -> Self {
         let q = circuit.q;
@@ -104,6 +101,26 @@ impl ReassociationPass {
         for incr in to_connect_root {
             self.liveness_wrt_usage.increment(incr, rewritten_root_op_gate_idx);
         }
+    }
+
+    fn prepare_for_next_round(&mut self) {
+        self.kill_unused_gates();
+        self.collect_survivors_in_operation_gates();
+    }
+
+    // If the reassociation pass is successful, it will render certain nodes of operation gates redundant. They will be killed after the pass, thus we have to housekeep to keep only alive operation gates in the list.  
+    fn collect_survivors_in_operation_gates(&mut self) {
+        // Unfortuntely, we can't swap_remove, we have to keep the list in topological order.
+        let mut survivors = ThinVec::with_capacity(self.operation_gates.len());
+
+        for op_gate_idx in &self.operation_gates {
+            if !self.dead[idx_to_usize(*op_gate_idx)] || self.constant_gates.contains(op_gate_idx) {
+                continue;
+            }
+            survivors.push(*op_gate_idx);
+        }
+        survivors.shrink_to_fit();
+        self.operation_gates = survivors;
     }
 
     fn kill_unused_gates(&mut self) {
@@ -221,7 +238,7 @@ pub fn reuse_driven_reassociate(circuit: &Circuit) -> Circuit {
                 reassociated = true;
             }
         }
-        reassociation_pass.kill_unused_gates();
+        reassociation_pass.prepare_for_next_round();
     }
 
     new_reassociated_circuit_from(circuit, reassociation_pass)
