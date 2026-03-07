@@ -128,14 +128,22 @@ dependencies = [
 name = "passes"
 version = "0.1.0"
 dependencies = [
+ "bit-set",
  "common",
  "fxhash",
  "ir",
  "la-arena",
  "op",
  "parameterized_test",
+ "prio-queue",
  "thin-vec",
 ]
+
+[[package]]
+name = "prio-queue"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f480f7b402173a7e7e1637c6709deb6e41e93ce17d2daad7d70ccea5b5d8985"
 
 [[package]]
 name = "proc-macro2"

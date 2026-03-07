@@ -27,9 +27,8 @@ impl LivenessWRTUsage {
         self.usages[idx_usize].len()
     }
 
-    pub(crate) fn get_usages(&self, gate_idx: GateIdx) -> &FxHashSet<GateIdx> {
-        let idx_usize = idx_to_usize(gate_idx);
-        &self.usages[idx_usize]
+    pub(crate) fn get_usages(&self) -> &[FxHashSet<GateIdx>] {
+        self.usages.as_slice()
     }
     pub(crate) fn decrement(&mut self, gate_idx: GateIdx, rem: GateIdx) -> usize {
         let usage = self.rem_usage_of(gate_idx, rem);

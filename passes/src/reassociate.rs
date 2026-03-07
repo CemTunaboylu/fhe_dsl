@@ -6,7 +6,7 @@ use la_arena::Arena;
 use op::BinOp;
 use thin_vec::{ThinVec, thin_vec};
 
-use crate::{folding, is_op_associative_and_commutative,  idx_to_usize, liveness::LivenessWRTUsage, usize_to_idx};
+use crate::{folding, idx_to_usize, is_op_associative_and_commutative, liveness::LivenessWRTUsage, new_reassociated_circuit_from, usize_to_idx};
 
 #[derive(Debug)]
 struct ReassociationPass {
@@ -243,72 +243,7 @@ pub fn reuse_driven_reassociate(circuit: &Circuit) -> Circuit {
         reassociation_pass.prepare_for_next_round();
     }
 
-    new_reassociated_circuit_from(circuit, reassociation_pass)
-}
-
-fn new_reassociated_circuit_from(
-    circuit: &Circuit,
-    mut reassociation_pass: ReassociationPass,
-) -> Circuit {
-    // input indices may have changed
-    let mut inputs = ThinVec::with_capacity(circuit.inputs().len());
-    // output indices may have changed
-    let mut outputs = ThinVec::with_capacity(circuit.outputs().len());
-    let mut alive_gates = Arena::new();
-
-    // We have usages list at hand, we traverse and copy mutated arena by correcting indices on
-    // the way and filtering Thombstones into a new arena. Since the gates are in topological
-    // order, it is guaranteed that any Operation using an operand comes after it.
-    let mut old_outputs = FxHashSet::from_iter(circuit.outputs().iter());
-
-    for idx in 0..reassociation_pass.gates.len() {
-        if reassociation_pass.dead[idx] {
-            continue;
-        } 
-
-        let gate_idx = usize_to_idx(idx);
-        let gate = reassociation_pass.gates[gate_idx];
-
-        let new_gate_idx = alive_gates.alloc(gate);
-
-        if matches!(gate, Gate::Input(_)) {
-            inputs.push(new_gate_idx);
-        }
-
-        let is_an_output = old_outputs.remove(&gate_idx);
-        if is_an_output {
-            outputs.push(new_gate_idx);
-        }
-
-        if new_gate_idx == gate_idx {
-            continue;
-        }
-
-        for user in reassociation_pass.liveness_wrt_usage.get_usages(gate_idx) {
-            // Outputs are self-used to prevent them being killed.
-            if is_an_output && *user == gate_idx {
-                continue;
-            }
-            let mut user_gate = reassociation_pass.gates[*user];
-            match &mut user_gate {
-                // NOTE: A gate user cannot be a constant or an input, their in-degree is 0.
-                Gate::Input(_) | Gate::Const(_) => unreachable!(),
-                Gate::Thombstone => continue,
-                Gate::BinOp(_bin_op, lhs, rhs) => {
-                    let replace = if *lhs == gate_idx {
-                        lhs
-                    } else if *rhs == gate_idx {
-                        rhs
-                    } else {
-                        unreachable!()
-                    };
-                    *replace = new_gate_idx;
-                }
-            }
-            reassociation_pass.gates[*user] = user_gate;
-        }
-    }
-    Circuit::with(circuit.q, alive_gates, inputs, outputs)
+    new_reassociated_circuit_from(circuit, reassociation_pass.gates, reassociation_pass.liveness_wrt_usage.get_usages())
 }
 
 #[derive(Debug)]
