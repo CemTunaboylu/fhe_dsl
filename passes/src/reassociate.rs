@@ -20,6 +20,7 @@ struct ReassociationPass {
 }
 
 impl ReassociationPass {
+    #[inline]
     fn new(circuit: &Circuit) -> Self {
         let q = circuit.q;
         let gates = circuit.gates().clone();
@@ -37,7 +38,7 @@ impl ReassociationPass {
             constant_gates,
         }
     }
-
+    #[inline]
     fn propagated_decrement(&mut self, from: GateIdx, dec: GateIdx) {
         let is_unused = self.liveness_wrt_usage.decrement(from, dec) == 0;
         if is_unused && let Gate::BinOp(_, lhs, rhs) = self.gates[from] {
@@ -46,8 +47,8 @@ impl ReassociationPass {
             }
         }
     }
-
-   fn propagated_increment(&mut self, from: GateIdx, incr:GateIdx) {
+    #[inline]
+    fn propagated_increment(&mut self, from: GateIdx, incr:GateIdx) {
         let has_become_used = self.liveness_wrt_usage.increment(from, incr) == 1;
         if has_become_used && let Gate::BinOp(_, lhs, rhs) = self.gates[from]{
             for child in [lhs, rhs] {
@@ -55,7 +56,7 @@ impl ReassociationPass {
             }
         }
    }
-
+    #[inline]
     fn accept_reassociation(&mut self,reassociation: Reassociation, rewritten_root_op_gate: Gate, rewritten_root_op_gate_idx: GateIdx) {
         // The old root gate is changed thus remove it
         self.seen.remove(&rewritten_root_op_gate);
@@ -102,12 +103,12 @@ impl ReassociationPass {
             self.liveness_wrt_usage.increment(incr, rewritten_root_op_gate_idx);
         }
     }
-
+    #[inline]
     fn prepare_for_next_round(&mut self) {
         self.kill_unused_gates();
         self.collect_survivors_in_operation_gates();
     }
-
+    #[inline]
     // If the reassociation pass is successful, it will render certain nodes of operation gates redundant. They will be killed after the pass, thus we have to housekeep to keep only alive operation gates in the list.  
     fn collect_survivors_in_operation_gates(&mut self) {
         // Unfortuntely, we can't swap_remove, we have to keep the list in topological order.
@@ -122,7 +123,7 @@ impl ReassociationPass {
         survivors.shrink_to_fit();
         self.operation_gates = survivors;
     }
-
+    #[inline]
     fn kill_unused_gates(&mut self) {
         // When thombstone is a Gate, it's operands if necessary, should have their usages change.
         for to_kill_idx in self.liveness_wrt_usage.get_killing_list() {
@@ -153,9 +154,9 @@ impl ReassociationPass {
         }
         self.liveness_wrt_usage.clear();
     }
-
 }
 
+#[inline]
 fn learn_topology_of(
     circuit: &Circuit,
 ) -> (
@@ -258,6 +259,7 @@ struct ReassociationCandidates {
 // to be 1, so that we can attempt to reassociate the operands.
 // We expect something like i) ((a op b) op c) or ii) (a op (b op c)) so that we can
 // try (a op c) and (b op c) for i and (a op c) and (a op b) for ii.
+#[inline]
 fn extract_reassociation_candidates(
     gates: &Arena<Gate>,
     current_instruction_bin_op: BinOp,
@@ -322,6 +324,7 @@ enum Reassociation {
     Folding{new_root: Gate, folded_gate: Gate, replacing_index: GateIdx, usage_update: UsageUpdate}
 }
 
+#[inline]
 fn try_reassociate_candidates(
     reassociation_candidate: ReassociationCandidates,
     bin_op_of_i: BinOp,
@@ -358,6 +361,7 @@ fn try_reassociate_candidates(
     None
 }
 
+#[inline]
 fn form_a_gate(
     bin_op_of_i: BinOp,
     instruction_to_rewrite: GateIdx,

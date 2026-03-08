@@ -25,6 +25,7 @@ struct RebalancePass {
 }
 
 impl RebalancePass {
+    #[inline]
     fn new(circuit: &Circuit, roots: FxHashSet<GateIdx>) -> Self {
         let gates_len = circuit.gates().len();
         let index = gates_len;
@@ -47,13 +48,16 @@ impl RebalancePass {
             usages,
         }
     }
+    #[inline]
     fn is_rebalanced(&self, idx: usize) -> bool {
         self.ranks[idx] >= 0
     }
+    #[inline]
     fn record_mapping(&mut self, from_unbalanced: GateIdx, new_rebalanced: GateIdx) {
         self.old_to_new_gate_idx_map
             .insert(from_unbalanced, new_rebalanced);
     }
+    #[inline]
     fn balance(&mut self, root_gate_idx: GateIdx, gates: &Arena<Gate>) {
         let idx = idx_to_usize(root_gate_idx);
         if self.is_rebalanced(idx) {
@@ -79,6 +83,7 @@ impl RebalancePass {
             self.usages[idx_to_usize(rebalanced_gate_idx)].insert(rebalanced_gate_idx);
         }
     }
+    #[inline]
     fn flatten(
         &mut self,
         priority_queue: &mut PrioQueue<(GateIdx, isize)>,
@@ -116,6 +121,7 @@ impl RebalancePass {
             Gate::Thombstone => unreachable!(),
         }
     }
+    #[inline]
     fn get_mapped_index_allocating(&mut self, gate_idx: GateIdx, gates: &Arena<Gate>) -> GateIdx {
         if let Some(mapped) = self.old_to_new_gate_idx_map.get(&gate_idx) {
             *mapped
@@ -124,16 +130,19 @@ impl RebalancePass {
             self.alloc_with_mapped_idx(from_old, gate_idx)
         }
     }
+    #[inline]
     fn alloc_with_mapped_idx(&mut self, gate: Gate, to_be_mapped_to: GateIdx) -> GateIdx {
         let index = self.rebalanced.alloc(gate);
         self.record_mapping(to_be_mapped_to, index);
         index
     }
+    #[inline]
     fn get_distinct_index(&mut self) -> GateIdx {
         let d = self.index;
         self.index += 1;
         usize_to_idx(d)
     }
+    #[inline]
     fn rebuild(
         &mut self,
         priority_queue: &mut PrioQueue<(GateIdx, isize)>,
@@ -179,6 +188,7 @@ impl RebalancePass {
     }
 }
 
+#[inline]
 fn is_root(
     gate_idx: GateIdx,
     op: BinOp,
