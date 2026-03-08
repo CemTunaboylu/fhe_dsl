@@ -1,3 +1,8 @@
+//! Implements the tree-rebalancing algebraic simplification that try to minimize the circuit depth. When possible it
+//! folds constants. The tree-rebalancing pass traverses the circuit and finds roots that a
+//! rebalancing can be performed on by isolating operation sub-trees and prioritizing according to
+//! operator precedence, e.g. rebalances * roots before + roots.
+//! More on the algorithm can be found on the corresponding wiki page.
 use ir::{
     SupportedType,
     circuit::Circuit,
@@ -171,7 +176,7 @@ impl RebalancePass {
             let rebalanced_idx = self.alloc_with_mapped_idx(new_gate, distinct_index);
             // NOTE: by not adding any usages to lhs and rhs, we are effectively pruning unused
             // gates. At the end, we form the new arena by looping over the usages, an unused
-            // gate, will not be transfered to the new arena.
+            // gate, will not be transferred to the new arena.
             if rank != 0 {
                 self.usages[idx_to_usize(lhs_index)].insert(rebalanced_idx);
                 self.usages[idx_to_usize(rhs_index)].insert(rebalanced_idx);

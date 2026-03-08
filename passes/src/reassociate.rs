@@ -1,3 +1,22 @@
+//! Implements the reuse-driven reassociation algebraic simplification that try to reuse previously computed expressions
+//! by reassociating/rewriting sub-trees. By also favoring constant folding rewrites, tries to minimize number of constants
+//! and unnecessary operations on them. The reuse-driven reassociation pass traverses the circuit and finds roots to subgraphs that have:
+//!     - one child with same operation kind
+//!     - children that are only used by the parent
+//! so that they can be rewritten by reassociating it's operands on the operation to reuse past expressions.
+//! This is called a dominator meaning that any expression that
+//! comes before dominates the current, thus it will be used to rewrite the operation. It is a
+//! best-effort algorithm that only rewrites cases where an elimination of the node is possible. 
+//! Note that the operation has to be associative and commutative to be written, - for example
+//! cannot be reassociated. 
+//! let x = a+b;
+//! let i = a+c;
+//! let y = i+b;
+//! becomes
+//! let x = a+b;
+//! let y = x+c; 
+//! a+c+b -> a+b+c -> x+c
+//! More on the algorithm can be found on the corresponding wiki page.
 use ir::{
     SupportedType, circuit::Circuit, gate::{Gate, GateIdx}
 };
@@ -111,7 +130,7 @@ impl ReassociationPass {
     #[inline]
     // If the reassociation pass is successful, it will render certain nodes of operation gates redundant. They will be killed after the pass, thus we have to housekeep to keep only alive operation gates in the list.  
     fn collect_survivors_in_operation_gates(&mut self) {
-        // Unfortuntely, we can't swap_remove, we have to keep the list in topological order.
+        // Unfortunately, we can't swap_remove, we have to keep the list in topological order.
         let mut survivors = ThinVec::with_capacity(self.operation_gates.len());
 
         for op_gate_idx in &self.operation_gates {
@@ -205,7 +224,8 @@ fn learn_topology_of(
 /* Find a sub-graph of an AC (associative, commutative) op of the same kind of the current node, and try to
 * rewrite by reusing other pre-computed instructions.
 * let x = a+b;
-* let y = a+c+b;
+* let i = a+c;
+* let y = i+b;
 *
 * becomes
 * let x = a+b;
