@@ -8,7 +8,6 @@ common = {path = "../common"}
 op = {path = "../op"}
 ir = {path = "../ir"}
 
-bit-set.workspace=true
 fxhash.workspace=true
 la-arena.workspace=true
 prio-queue.workspace=true

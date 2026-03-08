@@ -1,18 +1,18 @@
-use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use ir::{
     SupportedType, circuit::Circuit, gate::{Gate, GateIdx}
 };
+use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use la_arena::Arena;
 use op::BinOp;
 use thin_vec::{ThinVec, thin_vec};
 
-use crate::{folding, idx_to_usize, is_op_associative_and_commutative, liveness::LivenessWRTUsage, new_reassociated_circuit_from, usize_to_idx};
+use crate::{folding, is_op_associative_and_commutative, liveness::LivenessWRTUsage, new_reassociated_circuit_from, usize_to_idx};
 
 #[derive(Debug)]
 struct ReassociationPass {
     q: SupportedType,
     gates: Arena<Gate>,
-    dead: ThinVec<bool>,
+    dead: FxHashSet<GateIdx>,
     liveness_wrt_usage: LivenessWRTUsage,
     seen: FxHashMap<Gate, GateIdx>,
     operation_gates: ThinVec<GateIdx>,
@@ -23,7 +23,7 @@ impl ReassociationPass {
     fn new(circuit: &Circuit) -> Self {
         let q = circuit.q;
         let gates = circuit.gates().clone();
-        let dead = thin_vec![false; gates.len()];
+        let dead: FxHashSet<GateIdx> = FxHashSet::with_hasher(FxBuildHasher::default());
         // Learn topology of the circuit
         let (operation_gates, constant_gates, liveness_wrt_usage, seen) =
             learn_topology_of(circuit);
@@ -39,9 +39,8 @@ impl ReassociationPass {
     }
 
     fn propagated_decrement(&mut self, from: GateIdx, dec: GateIdx) {
-        // if self.dead[idx_to_usize(from)] {return;}
-        // if self.dead[idx_to_usize(dec)] {return;}
-        if self.liveness_wrt_usage.decrement(from, dec) == 0 && let Gate::BinOp(_, lhs, rhs) = self.gates[from]{
+        let is_unused = self.liveness_wrt_usage.decrement(from, dec) == 0;
+        if is_unused && let Gate::BinOp(_, lhs, rhs) = self.gates[from] {
             for child in [lhs, rhs] {
                 self.propagated_decrement(child, from);
             }
@@ -49,7 +48,8 @@ impl ReassociationPass {
     }
 
    fn propagated_increment(&mut self, from: GateIdx, incr:GateIdx) {
-        if self.liveness_wrt_usage.increment(from, incr) == 1 && let Gate::BinOp(_, lhs, rhs) = self.gates[from]{
+        let has_become_used = self.liveness_wrt_usage.increment(from, incr) == 1;
+        if has_become_used && let Gate::BinOp(_, lhs, rhs) = self.gates[from]{
             for child in [lhs, rhs] {
                 self.propagated_increment(child, from);
             }
@@ -114,7 +114,7 @@ impl ReassociationPass {
         let mut survivors = ThinVec::with_capacity(self.operation_gates.len());
 
         for op_gate_idx in &self.operation_gates {
-            if !self.dead[idx_to_usize(*op_gate_idx)] || self.constant_gates.contains(op_gate_idx) {
+            if self.dead.contains(op_gate_idx) || self.constant_gates.contains(op_gate_idx) {
                 continue;
             }
             survivors.push(*op_gate_idx);
@@ -126,9 +126,8 @@ impl ReassociationPass {
     fn kill_unused_gates(&mut self) {
         // When thombstone is a Gate, it's operands if necessary, should have their usages change.
         for to_kill_idx in self.liveness_wrt_usage.get_killing_list() {
-            let dead_idx = idx_to_usize(*to_kill_idx);
-            if self.dead[dead_idx] { continue; }
-            self.dead[dead_idx] = true;
+            if self.dead.contains(to_kill_idx) { continue; }
+            self.dead.insert(*to_kill_idx);
 
             let to_kill = self.gates[*to_kill_idx]; 
 
@@ -142,7 +141,7 @@ impl ReassociationPass {
                     for operand in [lhs, rhs] {
                         if self.liveness_wrt_usage.num_usage(operand) == 0 {
                             self.gates[operand] = Gate::Thombstone;
-                            self.dead[idx_to_usize(operand)] = true;
+                            self.dead.insert(operand);
                         }
                     }
                 },
@@ -369,7 +368,7 @@ fn form_a_gate(
     let (new_ops, other) = ops;
     let new_reassociated_child = Gate::BinOp(bin_op_of_i, new_ops.0, new_ops.1);
     if let Some(new_reassoc_gate_idx) = reassociation_pass.seen.get(&new_reassociated_child)
-        && !reassociation_pass.dead[idx_to_usize(*new_reassoc_gate_idx)]
+        && !reassociation_pass.dead.contains(new_reassoc_gate_idx)
     {
         let new_root = Gate::BinOp(bin_op_of_i, *new_reassoc_gate_idx, other);
         let moved_in_child = if is_lhs {

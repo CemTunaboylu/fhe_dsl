@@ -5,7 +5,6 @@ use ir::{
 };
 use op::BinOp;
 
-use bit_set::BitSet;
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use la_arena::Arena;
 use prio_queue::PrioQueue;
@@ -21,12 +20,12 @@ struct RebalancePass {
     q: SupportedType,
     ranks: ThinVec<isize>,
     rebalanced: Arena<Gate>,
-    roots: BitSet,
+    roots: FxHashSet<GateIdx>,
     usages: ThinVec<FxHashSet<GateIdx>>,
 }
 
 impl RebalancePass {
-    fn new(circuit: &Circuit, roots: BitSet) -> Self {
+    fn new(circuit: &Circuit, roots: FxHashSet<GateIdx>) -> Self {
         let gates_len = circuit.gates().len();
         let index = gates_len;
         let q = circuit.q;
@@ -102,9 +101,8 @@ impl RebalancePass {
                 rank
             }
             Gate::BinOp(_, lhs, rhs) => {
-                if self.roots.contains(idx) {
+                if self.roots.contains(&gate_idx) {
                     self.balance(gate_idx, gates);
-                    let idx = idx_to_usize(gate_idx);
                     let rank = self.ranks[idx];
                     priority_queue.push((gate_idx, rank));
                     rank
@@ -131,7 +129,6 @@ impl RebalancePass {
         self.record_mapping(to_be_mapped_to, index);
         index
     }
-
     fn get_distinct_index(&mut self) -> GateIdx {
         let d = self.index;
         self.index += 1;
@@ -201,7 +198,7 @@ fn is_root(
 }
 
 pub fn rebalance(circuit: &Circuit) -> Circuit {
-    let (mut roots_wrt_op_precedence, roots_bitset) = {
+    let (mut roots_wrt_op_precedence, root_set) = {
         let gates_len = circuit.gates().len();
         let mut usages = thin_vec![FxHashSet::with_hasher(FxBuildHasher::default()); gates_len];
         let mut operation_gates = ThinVec::<GateIdx>::new();
@@ -219,7 +216,7 @@ pub fn rebalance(circuit: &Circuit) -> Circuit {
 
         let mut roots_wrt_precedence =
             PrioQueue::new(|l: &(GateIdx, usize), r: &(GateIdx, usize)| l.1 > r.1);
-        let mut roots = BitSet::new();
+        let mut roots = FxHashSet::with_hasher(FxBuildHasher::default());
         for op_gate_idx in operation_gates {
             let op_gate = circuit.gates()[op_gate_idx];
             if let Gate::BinOp(op, _, _) = op_gate
@@ -227,14 +224,13 @@ pub fn rebalance(circuit: &Circuit) -> Circuit {
                     || circuit.outputs().contains(&op_gate_idx))
             {
                 roots_wrt_precedence.push((op_gate_idx, op.precedence()));
-                let bitset_idx = idx_to_usize(op_gate_idx);
-                roots.insert(bitset_idx);
+                roots.insert(op_gate_idx);
             }
         }
         (roots_wrt_precedence, roots)
     };
 
-    let mut rebalance_pass = RebalancePass::new(circuit, roots_bitset);
+    let mut rebalance_pass = RebalancePass::new(circuit, root_set);
     while !roots_wrt_op_precedence.is_empty() {
         let (root, _) = roots_wrt_op_precedence.pop().expect("to have a root");
         rebalance_pass.balance(root, circuit.gates());
