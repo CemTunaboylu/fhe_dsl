@@ -170,7 +170,6 @@ This mainly exists so you can control how aggressively the DSL enforces correctn
 
 - Only u64 arithmetic
 - No real FHE backend yet
-- Tree balancing pass is still cooking
 - Batched execution not finished
 - Parallel evaluation not finished
 
@@ -297,7 +296,7 @@ let y = (c_fold+a)+b;
 let y = c_fold+x;
 ```
 
-#### Tree balancing reassociation (WIP)
+#### Tree balancing reassociation
 
 ```rust
 let x = a+b+c+d+e+f+g+h;
