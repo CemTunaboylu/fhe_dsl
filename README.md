@@ -55,6 +55,10 @@ fewer gates = cheaper encrypted computation. It is important that we do as less 
 
 🔑 The last 2 optimizations are called algebraic simplifications, and are explained in detail in the wiki.
 
+👉 [Reuse-driven reassociation](../../wiki/Reuse_Driven_Reassociation)
+
+👉 [Tree-Balancing reassociation](../../wiki/Tree_Balancing_Reassociation)
+
 ### Quick Example
 
 ```rust
