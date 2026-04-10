@@ -11,7 +11,8 @@ pub enum Gate {
     Input(usize),
     Const(SupportedType),
     // NOTE: We preserve BinOp::Sub and not canonicalize it to (Add, lhs, (Mul, rhs, -1)) because
-    // it will potentially increase multiplicative depth.
+    // it will potentially increase multiplicative depth. In real FHE context, we still don't
+    // because negation is essentially free by just negating coefficients.
     BinOp(BinOp, GateIdx, GateIdx),
     Tombstone,
 }

@@ -95,7 +95,8 @@ impl Backend for MockFHEBackend {
     fn mul(&mut self, lhs: &Self::Elem, rhs: &Self::Elem) -> Self::Elem {
         let mut element = self.constant(lhs.value * rhs.value);
         element.depth = max(lhs.depth, rhs.depth) + 1;
-        element.noise = lhs.noise + rhs.noise + MUL_COST;
+        // NOTE: Noise during multiplication grows exponentially, thus the multiplication.
+        element.noise = lhs.noise * rhs.noise + MUL_COST;
         element
     }
     fn constant(&mut self, c: SupportedType) -> Self::Elem {
@@ -301,8 +302,8 @@ mod test {
             outputs,
         );
 
-        let noise_budget = 100;
-        let mut mock_fhe = MockFHEBackend::new(noise_budget);
+        let noise_budget = 1689; // noise becomes 1686 at the end 
+        let mut mock_fhe = mock_fhe_backend(noise_budget);
         let error = mock_fhe
             .eval(&circuit, &[1])
             .expect_err("should have failed");
@@ -313,7 +314,11 @@ mod test {
             .expect("should have evaluated");
 
         let input_noise = ENC_NOISE;
-        let single_mul_noise = 2 * input_noise + MUL_COST;
+        let mul_noise = |operand_noise| operand_noise * operand_noise + MUL_COST;
+        let single_mul_noise = mul_noise(input_noise);
+        let double_mul_noise = mul_noise(single_mul_noise);
+        let triple_mul_noise = mul_noise(double_mul_noise);
+        let single_and_double_mul_noise = single_mul_noise * double_mul_noise + MUL_COST;
 
         let expected_elements = thin_vec![
             FHEElement {
@@ -334,17 +339,17 @@ mod test {
             FHEElement {
                 value: 1,
                 depth: 2,
-                noise: 2 * single_mul_noise + MUL_COST,
+                noise: double_mul_noise,
             },
             FHEElement {
                 value: 1,
                 depth: 3,
-                noise: 2 * (2 * single_mul_noise + MUL_COST) + MUL_COST,
+                noise: triple_mul_noise,
             },
             FHEElement {
                 value: 1,
                 depth: 3,
-                noise: single_mul_noise + (2 * single_mul_noise + MUL_COST) + MUL_COST,
+                noise: single_and_double_mul_noise,
             },
         ];
 
@@ -379,9 +384,11 @@ mod test {
             .expect_err("should have failed due to noise budget");
 
         let input_noise = ENC_NOISE;
-        let single_mul_noise = 2 * input_noise + MUL_COST;
+        let mul_noise = |operand_noise| operand_noise * operand_noise + MUL_COST;
+        let single_mul_noise = mul_noise(input_noise);
+        let double_mul_noise = mul_noise(single_mul_noise);
         assert_eq!(
-            BackendError::NoiseBudgetExceeded(noise_budget, single_mul_noise, 2),
+            BackendError::NoiseBudgetExceeded(noise_budget, double_mul_noise, 3),
             error
         );
     }
@@ -524,30 +531,34 @@ mod test {
             outputs,
         );
 
-        let noise_budget = 100;
-        let mut mock_fhe = MockFHEBackend::new(noise_budget);
+        let noise_budget = 1689; // noise at the end reaches 1686
+        let mut mock_fhe = mock_fhe_backend(noise_budget);
         let results = mock_fhe
             .eval_outputs(&circuit, &[1, 1])
             .expect("should have evaluated");
 
         let input_noise = ENC_NOISE;
-        let single_mul_noise = 2 * input_noise + MUL_COST;
+        let mul_noise = |operand_noise| operand_noise * operand_noise + MUL_COST;
+        let single_mul_noise = mul_noise(input_noise);
+        let double_mul_noise = mul_noise(single_mul_noise);
+        let triple_mul_noise = mul_noise(double_mul_noise);
+        let single_and_double_noise = single_mul_noise * double_mul_noise + MUL_COST;
 
         let expected_elements = thin_vec![
             FHEElement {
                 value: 1,
                 depth: 2,
-                noise: 2 * single_mul_noise + MUL_COST,
+                noise: double_mul_noise,
             },
             FHEElement {
                 value: 1,
                 depth: 3,
-                noise: 2 * (2 * single_mul_noise + MUL_COST) + MUL_COST,
+                noise: triple_mul_noise,
             },
             FHEElement {
                 value: 1,
                 depth: 3,
-                noise: single_mul_noise + (2 * single_mul_noise + MUL_COST) + MUL_COST,
+                noise: single_and_double_noise,
             },
         ];
 
