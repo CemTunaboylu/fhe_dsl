@@ -1,11 +1,13 @@
 use std::ops::Sub;
 
+use common::Supported;
+
 use crate::expr::{Expr, ExprHandle};
 
 use op::BinOp;
 
-impl Sub for &ExprHandle {
-    type Output = ExprHandle;
+impl<T: Supported> Sub for &ExprHandle<T> {
+    type Output = ExprHandle<T>;
 
     fn sub(self, rhs: Self) -> Self::Output {
         let expr = Expr::BinOp(BinOp::Sub, self.idx, rhs.idx);
@@ -13,7 +15,7 @@ impl Sub for &ExprHandle {
     }
 }
 
-impl Sub for ExprHandle {
+impl<T: Supported> Sub for ExprHandle<T> {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
@@ -21,8 +23,8 @@ impl Sub for ExprHandle {
     }
 }
 
-impl Sub for &mut ExprHandle {
-    type Output = ExprHandle;
+impl<T: Supported> Sub for &mut ExprHandle<T> {
+    type Output = ExprHandle<T>;
 
     fn sub(self, rhs: Self) -> Self::Output {
         (&*self).sub(&*rhs)

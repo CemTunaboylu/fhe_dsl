@@ -1,4 +1,4 @@
-use ir::circuit::Circuit;
+use ir::{Supported, circuit::Circuit};
 use thin_vec::ThinVec;
 
 use crate::depth::{DepthAnalysis, MulCounter, TotalGateDepthCounter, get_depth};
@@ -10,12 +10,12 @@ pub struct CircuitStats {
     pub depth_analysis: DepthAnalysis,
 }
 
-pub fn analyse(circuit: &Circuit) -> CircuitStats {
+pub fn analyse<T: Supported>(circuit: &Circuit<T>) -> CircuitStats {
     let num_outputs = circuit.outputs().len();
     let mut mul_depth_analysis = ThinVec::with_capacity(num_outputs);
     let mut gate_depth_analysis = ThinVec::with_capacity(num_outputs);
     for out in circuit.outputs() {
-        let (mul, gate) = get_depth::<MulCounter, TotalGateDepthCounter>(circuit, *out);
+        let (mul, gate) = get_depth::<MulCounter, TotalGateDepthCounter, T>(circuit, *out);
         mul_depth_analysis.push(mul);
         gate_depth_analysis.push(gate);
     }

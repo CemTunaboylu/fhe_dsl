@@ -1,13 +1,13 @@
 use crate::{
-    SupportedType,
     expr::{Expr, ExprIdx},
 };
 
+use common::Supported;
 use op::BinOp;
 
 use std::hash::{Hash, Hasher};
 
-impl Hash for Expr {
+impl<T: Supported> Hash for Expr<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         let expr_hash = ExprHash::from(self);
         expr_hash.hash(state);
@@ -15,22 +15,22 @@ impl Hash for Expr {
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
-pub(crate) enum ExprHash {
+pub(crate) enum ExprHash<T: Supported> {
     Input(usize),
-    Const(SupportedType),
+    Const(T),
     /// ExprIds are ordered before forming Double to avoid order originating duplicates,
     /// except non-commutatives.
-    BinOp(BinOp, ExprIdx, ExprIdx),
+    BinOp(BinOp, ExprIdx<T>, ExprIdx<T>),
 }
 
-impl From<Expr> for ExprHash {
-    fn from(expr: Expr) -> Self {
+impl<T: Supported> From<Expr<T>> for ExprHash<T> {
+    fn from(expr: Expr<T>) -> Self {
         ExprHash::from(&expr)
     }
 }
 
-impl From<&Expr> for ExprHash {
-    fn from(expr: &Expr) -> Self {
+impl<T: Supported> From<&Expr<T>> for ExprHash<T> {
+    fn from(expr: &Expr<T>) -> Self {
         let (op, mut lhs, mut rhs) = match expr {
             Expr::Input(index) => return Self::Input(*index),
             Expr::Const(v) => return Self::Const(*v),
@@ -55,13 +55,13 @@ mod test {
     use super::*;
     use std::collections::HashSet;
 
-    fn u32_to_idx(i: u32) -> ExprIdx {
-        common::u32_to_idx::<Expr>(i)
+    fn u32_to_idx<T: Supported>(i: u32) -> ExprIdx<T> {
+        common::u32_to_idx::<Expr<T>>(i)
     }
 
     #[test]
     fn same_data_same_hash_for_ac() {
-        let mut hash_set = HashSet::new();
+        let mut hash_set: HashSet<Expr<u64>> = HashSet::new();
 
         for bin_op in [BinOp::Add, BinOp::Mul] {
             let expr = Expr::BinOp(bin_op, u32_to_idx(0), u32_to_idx(1));
@@ -73,7 +73,7 @@ mod test {
     }
     #[test]
     fn same_data_same_hash_for_non_ac() {
-        let gate = Expr::BinOp(BinOp::Sub, u32_to_idx(0), u32_to_idx(1));
+        let gate: Expr<u64> = Expr::BinOp(BinOp::Sub, u32_to_idx(0), u32_to_idx(1));
         let gate_swapped = Expr::BinOp(BinOp::Sub, u32_to_idx(1), u32_to_idx(0));
 
         let mut hash_set = HashSet::new();

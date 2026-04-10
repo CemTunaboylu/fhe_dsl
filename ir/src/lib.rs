@@ -2,4 +2,4 @@ pub mod circuit;
 pub mod gate;
 pub mod hash;
 
-pub type SupportedType = u64;
+pub use common::Supported;

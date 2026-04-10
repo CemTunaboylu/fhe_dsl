@@ -1,11 +1,13 @@
 use std::ops::Mul;
 
+use common::Supported;
+
 use crate::expr::{Expr, ExprHandle};
 
 use op::BinOp;
 
-impl Mul for &ExprHandle {
-    type Output = ExprHandle;
+impl<T: Supported> Mul for &ExprHandle<T> {
+    type Output = ExprHandle<T>;
 
     fn mul(self, rhs: Self) -> Self::Output {
         let expr = Expr::BinOp(BinOp::Mul, self.idx, rhs.idx);
@@ -13,7 +15,7 @@ impl Mul for &ExprHandle {
     }
 }
 
-impl Mul for ExprHandle {
+impl<T: Supported> Mul for ExprHandle<T> {
     type Output = Self;
 
     fn mul(self, rhs: Self) -> Self::Output {
@@ -21,8 +23,8 @@ impl Mul for ExprHandle {
     }
 }
 
-impl Mul for &mut ExprHandle {
-    type Output = ExprHandle;
+impl<T: Supported> Mul for &mut ExprHandle<T> {
+    type Output = ExprHandle<T>;
 
     fn mul(self, rhs: Self) -> Self::Output {
         (&*self).mul(&*rhs)

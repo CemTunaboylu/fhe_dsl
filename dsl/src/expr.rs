@@ -2,19 +2,21 @@ use la_arena::Idx;
 use op::BinOp;
 use passes::interner::Internable;
 
-use crate::{SupportedType, ctx::ContextHandle, hash::ExprHash};
+use common::Supported;
 
-pub type ExprIdx = Idx<Expr>;
+use crate::{ctx::ContextHandle, hash::ExprHash};
+
+pub type ExprIdx<T> = Idx<Expr<T>>;
 
 #[derive(Clone, Copy, Debug)]
-pub enum Expr {
+pub enum Expr<T: Supported> {
     /// takes the index of the argument
     Input(usize),
-    Const(SupportedType),
-    BinOp(BinOp, ExprIdx, ExprIdx),
+    Const(T),
+    BinOp(BinOp, ExprIdx<T>, ExprIdx<T>),
 }
 
-impl PartialEq for Expr {
+impl<T: Supported> PartialEq for Expr<T> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Input(l0), Self::Input(r0)) => l0 == r0,
@@ -27,21 +29,21 @@ impl PartialEq for Expr {
     }
 }
 
-impl Eq for Expr {}
+impl<T: Supported> Eq for Expr<T> {}
 
-impl Internable for Expr {}
+impl<T: Supported> Internable for Expr<T> {}
 
 #[derive(Clone, Debug)]
-pub struct ExprHandle {
-    pub idx: ExprIdx,
-    pub ctx_handle: ContextHandle,
+pub struct ExprHandle<T: Supported> {
+    pub idx: ExprIdx<T>,
+    pub ctx_handle: ContextHandle<T>,
 }
 
-impl ExprHandle {
-    pub(crate) fn extend_new_handle(&self, expr: Expr) -> Self {
+impl<T: Supported> ExprHandle<T> {
+    pub(crate) fn extend_new_handle(&self, expr: Expr<T>) -> Self {
         self.ctx_handle.expr_handle_for(expr)
     }
-    pub fn get_expr(&self) -> Expr {
+    pub fn get_expr(&self) -> Expr<T> {
         self.ctx_handle.get(self.idx)
     }
 }
@@ -55,8 +57,8 @@ mod tests {
 
     use super::*;
 
-    fn test_ctx_handle() -> ContextHandle {
-        new_loose_context(5)
+    fn test_ctx_handle() -> ContextHandle<u64> {
+        new_loose_context(5u64)
     }
 
     #[test]
@@ -74,7 +76,7 @@ mod tests {
     #[test]
     fn test_constant() {
         let ctx_handle = test_ctx_handle();
-        let value = 9;
+        let value = 9u64;
         let constant = ctx_handle.constant(value);
 
         assert_eq!(idx_to_u32(constant.idx), 0);
@@ -83,14 +85,14 @@ mod tests {
         assert_eq!(inserted_expr, Expr::Const(value));
     }
 
-    fn get_arena_len(context_handle: &ContextHandle) -> usize {
+    fn get_arena_len<T: Supported>(context_handle: &ContextHandle<T>) -> usize {
         context_handle.0.borrow().arena.len()
     }
 
     #[test]
     fn test_hash_consing_for_constants_and_inputs() {
         let ctx_handle = test_ctx_handle();
-        let constant_value = 9;
+        let constant_value = 9u64;
         let constant = ctx_handle.constant(constant_value);
 
         let expected_length_for_constant = get_arena_len(&ctx_handle);
@@ -119,9 +121,9 @@ mod tests {
         BorrowMut,
     }
 
-    fn perform_op_with_expectation<O>(op: BinOp, operand_1: O, operand_2: O) -> (ExprHandle, BinOp)
+    fn perform_op_with_expectation<O>(op: BinOp, operand_1: O, operand_2: O) -> (ExprHandle<u64>, BinOp)
     where
-        O: Add<Output = ExprHandle> + Sub<Output = ExprHandle> + Mul<Output = ExprHandle>,
+        O: Add<Output = ExprHandle<u64>> + Sub<Output = ExprHandle<u64>> + Mul<Output = ExprHandle<u64>>,
     {
         match op {
             BinOp::Add => {
@@ -141,10 +143,10 @@ mod tests {
 
     fn perform_op_with_expectation_mode(
         op: BinOp,
-        mut expr_handle_1: ExprHandle,
-        mut expr_handle_2: ExprHandle,
+        mut expr_handle_1: ExprHandle<u64>,
+        mut expr_handle_2: ExprHandle<u64>,
         mode: Mode,
-    ) -> (ExprHandle, Expr) {
+    ) -> (ExprHandle<u64>, Expr<u64>) {
         match mode {
             Mode::Move => {
                 let (idx_1, idx_2) = (expr_handle_1.idx, expr_handle_2.idx);
@@ -173,7 +175,7 @@ mod tests {
 
             let ctx_handle = test_ctx_handle();
             let index = 0;
-            let value = 9;
+            let value = 9u64;
 
             let input = ctx_handle.input(index);
             let constant = ctx_handle.constant(value);
@@ -199,7 +201,7 @@ mod tests {
 
             let ctx_handle = test_ctx_handle();
             let index = 0;
-            let value = 9;
+            let value = 9u64;
 
             // Agnostic to the operands mode (move, borrowed), if operation is the same and the
             // values of operands are the same, it will be re-used.
@@ -209,8 +211,8 @@ mod tests {
             let constant = ctx_handle.constant(value);
 
             for mode in [Mode::Move, Mode::Borrow, Mode::BorrowMut] {
-                let (expr_handle, expectation) = perform_op_with_expectation_mode(op.clone(), input.clone(), constant.clone(), mode.clone());
-                let (same_expr_handle, expectation) = perform_op_with_expectation_mode(op.clone(), input.clone(), constant.clone(), mode);
+                let (expr_handle, _expectation) = perform_op_with_expectation_mode(op.clone(), input.clone(), constant.clone(), mode.clone());
+                let (same_expr_handle, _expectation) = perform_op_with_expectation_mode(op.clone(), input.clone(), constant.clone(), mode);
 
                 assert_eq!(expr_handle.idx, same_expr_handle.idx);
                 let current_arena_length = get_arena_len(&ctx_handle);
@@ -220,8 +222,8 @@ mod tests {
             if matches!(op, BinOp::Sub) {
                 // Reverse order should not yield the same
                 for mode in [Mode::Move, Mode::Borrow, Mode::BorrowMut] {
-                    let (expr_handle, expectation) = perform_op_with_expectation_mode(op.clone(), constant.clone(), input.clone(), mode.clone());
-                    let (same_expr_handle, expectation) = perform_op_with_expectation_mode(op.clone(), constant.clone(), input.clone(), mode);
+                    let (expr_handle, _expectation) = perform_op_with_expectation_mode(op.clone(), constant.clone(), input.clone(), mode.clone());
+                    let (same_expr_handle, _expectation) = perform_op_with_expectation_mode(op.clone(), constant.clone(), input.clone(), mode);
 
                     assert!(expr_handle.idx == same_expr_handle.idx);
                     let current_arena_length = get_arena_len(&ctx_handle);
@@ -230,8 +232,8 @@ mod tests {
             } else {
                 // Reverse order should also yield the same
                 for mode in [Mode::Move, Mode::Borrow, Mode::BorrowMut] {
-                    let (expr_handle, expectation) = perform_op_with_expectation_mode(op.clone(), constant.clone(), input.clone(), mode.clone());
-                    let (same_expr_handle, expectation) = perform_op_with_expectation_mode(op.clone(), constant.clone(), input.clone(), mode);
+                    let (expr_handle, _expectation) = perform_op_with_expectation_mode(op.clone(), constant.clone(), input.clone(), mode.clone());
+                    let (same_expr_handle, _expectation) = perform_op_with_expectation_mode(op.clone(), constant.clone(), input.clone(), mode);
 
                     assert_eq!(expr_handle.idx, same_expr_handle.idx);
                     let current_arena_length = get_arena_len(&ctx_handle);
@@ -246,5 +248,24 @@ mod tests {
         add: BinOp::Add,
         sub: BinOp::Sub,
         mul: BinOp::Mul,
+    }
+
+    fn assert_supported_expr<T: Supported>() {
+        // Compile-time check that Expr<T> is usable for all supported integer types.
+        // We verify that Expr<T> satisfies the Internable bounds: Clone + Eq + Hash + PartialEq.
+        fn _check<I: Internable>() {}
+        _check::<Expr<T>>();
+    }
+
+    #[test]
+    fn all_supported_integer_types_work_as_expr_const() {
+        assert_supported_expr::<i8>();
+        assert_supported_expr::<i16>();
+        assert_supported_expr::<i32>();
+        assert_supported_expr::<i64>();
+        assert_supported_expr::<u8>();
+        assert_supported_expr::<u16>();
+        assert_supported_expr::<u32>();
+        assert_supported_expr::<u64>();
     }
 }
