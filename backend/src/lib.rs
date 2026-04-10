@@ -3,15 +3,20 @@ use thin_vec::ThinVec;
 
 use error::BackendError;
 
+use crate::{element::NoisyElement, noise::Noise};
+
+pub mod element;
 pub mod error;
+mod iterative;
 pub mod mock_fhe;
+mod noise;
 pub mod plain;
 pub mod validation;
 
 pub type BackendResult<T> = Result<T, BackendError>;
 
 pub trait Backend {
-    type Elem;
+    type Elem: NoisyElement;
 
     fn add(&mut self, lhs: &Self::Elem, rhs: &Self::Elem) -> Self::Elem;
     fn sub(&mut self, lhs: &Self::Elem, rhs: &Self::Elem) -> Self::Elem;
@@ -28,4 +33,6 @@ pub trait Backend {
         circuit: &Circuit,
         with: &[SupportedType],
     ) -> BackendResult<ThinVec<Self::Elem>>;
+    fn set_plain_text_modulus(&mut self, q: SupportedType);
+    fn get_noise_mul(&mut self) -> &mut impl Noise;
 }
