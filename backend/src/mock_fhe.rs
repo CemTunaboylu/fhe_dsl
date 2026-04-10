@@ -15,14 +15,14 @@ use crate::{Backend, BackendError, BackendResult, validation::validate_same_leng
 
 #[derive(Clone, Debug, Default)]
 pub struct MockFHEBackend {
-    q: SupportedType,
+    plain_text_modulus: SupportedType,
     noise: Noise,
 }
 
 impl MockFHEBackend {
     pub fn new(noise_budget: usize) -> Self {
         Self {
-            q: SupportedType::default(),
+            plain_text_modulus: SupportedType::default(),
             noise: Noise::new(noise_budget),
         }
     }
@@ -100,13 +100,13 @@ impl Backend for MockFHEBackend {
     }
     fn constant(&mut self, c: SupportedType) -> Self::Elem {
         FHEElement {
-            value: c % self.q,
+            value: c % self.plain_text_modulus,
             ..Default::default()
         }
     }
     fn input(&mut self, c: SupportedType) -> Self::Elem {
         FHEElement {
-            value: c % self.q,
+            value: c % self.plain_text_modulus,
             noise: ENC_NOISE,
             ..Default::default()
         }
@@ -120,7 +120,7 @@ impl Backend for MockFHEBackend {
         with: &[SupportedType],
     ) -> BackendResult<ThinVec<Self::Elem>> {
         validate_same_length(circuit, with)?;
-        self.q = circuit.q;
+        self.plain_text_modulus = circuit.plain_text_modulus;
         // NOTE: we restart noise because certain outputs can be below the budget but if we
         // evaluate an output which overwhelms the noise budget, we won't be able to evaluate
         // anything after that. Also the max and index values will be wrong no matter the case,
@@ -161,7 +161,7 @@ impl Backend for MockFHEBackend {
         with: &[SupportedType],
     ) -> BackendResult<ThinVec<Self::Elem>> {
         validate_same_length(circuit, with)?;
-        self.q = circuit.q;
+        self.plain_text_modulus = circuit.plain_text_modulus;
         // NOTE: we restart noise because certain outputs can be below the budget but if we
         // evaluate an output which overwhelms the noise budget, we won't be able to evaluate
         // anything after that. Also the max and index values will be wrong no matter the case,

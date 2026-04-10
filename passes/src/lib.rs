@@ -125,5 +125,5 @@ pub(crate) fn new_reassociated_circuit_from(
             );
         }
     }
-    Circuit::with(circuit.q, alive_gates, inputs, outputs)
+    Circuit::with(circuit.plain_text_modulus, alive_gates, inputs, outputs)
 }

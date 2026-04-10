@@ -49,7 +49,7 @@ impl ContextHandle {
 
 #[derive(Clone, Debug)]
 pub struct Context {
-    pub(crate) q: SupportedType,
+    pub(crate) plain_text_modulus: SupportedType,
     pub(crate) mode: CompilationMode,
     pub(crate) arena: Arena<Expr>,
     pub(crate) interner: Interner<Expr>,
@@ -60,7 +60,7 @@ impl Context {
         let arena = Arena::new();
         let interner = Interner::new();
         Self {
-            q,
+            plain_text_modulus: q,
             mode,
             arena,
             interner,
@@ -76,7 +76,7 @@ impl Context {
         set
     }
     pub fn append(&mut self, mut expr: Expr) -> ExprIdx {
-        expr = fold(expr, &mut self.arena, self.q);
+        expr = fold(expr, &mut self.arena, self.plain_text_modulus);
         self.interner.intern(expr, &mut self.arena)
     }
     /// Eliminates unused edges by operating on operator expressions, also returns the set of

@@ -29,7 +29,7 @@ use crate::{folding, is_op_associative_and_commutative, liveness::LivenessWRTUsa
 
 #[derive(Debug)]
 struct ReassociationPass {
-    q: SupportedType,
+    plain_text_modulus: SupportedType,
     gates: Arena<Gate>,
     dead: FxHashSet<GateIdx>,
     liveness_wrt_usage: LivenessWRTUsage,
@@ -41,14 +41,14 @@ struct ReassociationPass {
 impl ReassociationPass {
     #[inline]
     fn new(circuit: &Circuit) -> Self {
-        let q = circuit.q;
+        let q = circuit.plain_text_modulus;
         let gates = circuit.gates().clone();
         let dead: FxHashSet<GateIdx> = FxHashSet::with_hasher(FxBuildHasher::default());
         // Learn topology of the circuit
         let (operation_gates, constant_gates, liveness_wrt_usage, seen) =
             learn_topology_of(circuit);
         Self {
-            q,
+            plain_text_modulus: q,
             gates,
             dead,
             liveness_wrt_usage,
@@ -407,7 +407,7 @@ fn form_a_gate(
     // We create a new Gate::Const with folding::fold 
     else if reassociation_pass.constant_gates.contains(&new_ops.0) && reassociation_pass.constant_gates.contains(&new_ops.1) {
         // We know that instruction to rewrite is only used by us, so we will replace it with our folded gate directly.
-        let folded_gate= folding::fold(Gate::BinOp(bin_op_of_i, new_ops.0, new_ops.1), &reassociation_pass.gates, reassociation_pass.q);
+        let folded_gate= folding::fold(Gate::BinOp(bin_op_of_i, new_ops.0, new_ops.1), &reassociation_pass.gates, reassociation_pass.plain_text_modulus);
     
         // We have to severe the usage connections of the constants with their parent Ops. 
         // In case association is lhs and left/right, left-most constant and the `other` is attached to gate that is being

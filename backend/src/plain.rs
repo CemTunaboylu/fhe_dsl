@@ -13,13 +13,13 @@ use crate::{Backend, BackendResult, validation::validate_same_length};
 
 #[derive(Clone, Debug, Default)]
 pub struct PlainModQBackend {
-    q: SupportedType,
+    plain_text_modulus: SupportedType,
 }
 
 impl PlainModQBackend {
     pub fn new() -> Self {
         Self {
-            q: SupportedType::default(),
+            plain_text_modulus: SupportedType::default(),
         }
     }
 }
@@ -37,10 +37,10 @@ impl Backend for PlainModQBackend {
         self.constant(lhs * rhs)
     }
     fn input(&mut self, c: SupportedType) -> Self::Elem {
-        c % self.q
+        c % self.plain_text_modulus
     }
     fn constant(&mut self, c: SupportedType) -> Self::Elem {
-        c % self.q
+        c % self.plain_text_modulus
     }
     // TODO: Introduce a cache to avoid evaluating the same circuit twice.
     fn eval(
@@ -49,7 +49,7 @@ impl Backend for PlainModQBackend {
         with: &[SupportedType],
     ) -> BackendResult<ThinVec<Self::Elem>> {
         validate_same_length(circuit, with)?;
-        self.q = circuit.q;
+        self.plain_text_modulus = circuit.plain_text_modulus;
         let mut results: ThinVec<Self::Elem> =
             thin_vec![SupportedType::default(); circuit.gates().len()];
 
@@ -85,7 +85,7 @@ impl Backend for PlainModQBackend {
         with: &[SupportedType],
     ) -> BackendResult<ThinVec<Self::Elem>> {
         validate_same_length(circuit, with)?;
-        self.q = circuit.q;
+        self.plain_text_modulus = circuit.plain_text_modulus;
 
         let mut roots = circuit.outputs().iter();
         let mut dfs_stack = ThinVec::new();

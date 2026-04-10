@@ -2,7 +2,7 @@ use la_arena::Arena;
 
 use ir::{SupportedType, gate::Gate};
 
-pub fn fold(gate: Gate, arena: &Arena<Gate>, q: SupportedType) -> Gate {
+pub fn fold(gate: Gate, arena: &Arena<Gate>, plain_text_modulus: SupportedType) -> Gate {
     match gate {
         Gate::Tombstone => gate,
         Gate::Input(_) | Gate::Const(_) => gate,
@@ -14,9 +14,9 @@ pub fn fold(gate: Gate, arena: &Arena<Gate>, q: SupportedType) -> Gate {
                 && let Gate::Const(rhs_value) = rhs
             {
                 let result = match bin_op {
-                    op::BinOp::Add => (lhs_value + rhs_value) % q,
-                    op::BinOp::Sub => (lhs_value - rhs_value) % q,
-                    op::BinOp::Mul => (lhs_value * rhs_value) % q,
+                    op::BinOp::Add => (lhs_value + rhs_value) % plain_text_modulus,
+                    op::BinOp::Sub => (lhs_value - rhs_value) % plain_text_modulus,
+                    op::BinOp::Mul => (lhs_value * rhs_value) % plain_text_modulus,
                 };
                 return Gate::Const(result);
             }

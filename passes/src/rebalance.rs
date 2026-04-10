@@ -22,7 +22,7 @@ struct RebalancePass {
     index: usize,
     old_to_new_gate_idx_map: FxHashMap<GateIdx, GateIdx>,
     outputs: FxHashSet<GateIdx>,
-    q: SupportedType,
+    plain_text_modulus: SupportedType,
     ranks: ThinVec<isize>,
     rebalanced: Arena<Gate>,
     roots: FxHashSet<GateIdx>,
@@ -34,7 +34,7 @@ impl RebalancePass {
     fn new(circuit: &Circuit, roots: FxHashSet<GateIdx>) -> Self {
         let gates_len = circuit.gates().len();
         let index = gates_len;
-        let q = circuit.q;
+        let q = circuit.plain_text_modulus;
         let ranks = thin_vec![-1; gates_len];
         let rebalanced = Arena::with_capacity(gates_len);
         let root_old_to_new_gate_idx_map = FxHashMap::with_hasher(FxBuildHasher::default());
@@ -46,7 +46,7 @@ impl RebalancePass {
             index,
             old_to_new_gate_idx_map: root_old_to_new_gate_idx_map,
             outputs,
-            q,
+            plain_text_modulus: q,
             ranks,
             rebalanced,
             roots,
@@ -167,7 +167,7 @@ impl RebalancePass {
             let mut new_gate = Gate::BinOp(op, lhs_index, rhs_index);
             // Fold 2 constants in place
             let rank = if lhs_rank == 0 && rhs_rank == 0 {
-                new_gate = fold(new_gate, &self.rebalanced, self.q);
+                new_gate = fold(new_gate, &self.rebalanced, self.plain_text_modulus);
                 0
             } else {
                 lhs_rank + rhs_rank

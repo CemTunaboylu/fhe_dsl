@@ -40,7 +40,7 @@ impl ContextHandle {
 
 #[derive(Clone, Debug)]
 struct CircuitCompiler {
-    q: SupportedType,
+    plain_text_modulus: SupportedType,
     context_handle: ContextHandle,
     pub gates: Arena<Gate>,
     pub inputs: ThinVec<GateIdx>,
@@ -109,10 +109,10 @@ impl CircuitCompiler {
         })
     }
     pub fn with(context_handle: ContextHandle) -> Self {
-        let q = context_handle.0.borrow().q;
+        let q = context_handle.0.borrow().plain_text_modulus;
         let expr_idx_to_gate_idx = FxHashMap::with_hasher(FxBuildHasher::default());
         Self {
-            q,
+            plain_text_modulus: q,
             context_handle,
             gates: Arena::new(),
             inputs: ThinVec::new(),
@@ -246,7 +246,12 @@ impl CircuitCompiler {
 
         dbg!(&self);
 
-        Ok(Circuit::with(self.q, self.gates, self.inputs, self.outputs))
+        Ok(Circuit::with(
+            self.plain_text_modulus,
+            self.gates,
+            self.inputs,
+            self.outputs,
+        ))
     }
 }
 
@@ -285,7 +290,7 @@ mod tests {
         let constant_2 = ctx_handle.constant(value);
         let out = constant_1 + constant_2;
 
-        let expected = value * 2 % ctx_handle.0.borrow().q;
+        let expected = value * 2 % ctx_handle.0.borrow().plain_text_modulus;
 
         // (Add, lhs_constant, rhs_constant) -> will fold to Const(lhs_constant + rhs_constant)
         let expected_length = 1;
@@ -328,7 +333,7 @@ mod tests {
         let constant_2 = ctx_handle.constant(value);
         let out = constant_1 + constant_2;
 
-        let expected = value * 2 % ctx_handle.0.borrow().q;
+        let expected = value * 2 % ctx_handle.0.borrow().plain_text_modulus;
 
         // (Add, lhs_constant, rhs_constant) -> will fold to Const(lhs_constant + rhs_constant)
         let expected_length = 1;
