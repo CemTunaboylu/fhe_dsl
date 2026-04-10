@@ -82,7 +82,7 @@ impl CircuitCompiler {
         }
 
         let strictness_mode: Strictness = Strictness::from(&ctx.mode);
-        let mut fucked_it_up = false;
+        let mut didnt_pass_strictness = false;
 
         for strictness_on in all::<StrictnessOn>() {
             let strict: Strictness = (&strictness_on).into();
@@ -90,7 +90,7 @@ impl CircuitCompiler {
             if !is_strict {
                 continue;
             }
-            fucked_it_up = match strictness_on {
+            didnt_pass_strictness = match strictness_on {
                 StrictnessOn::Input if !unused_inputs.is_empty() => true,
                 StrictnessOn::Const if !unused_constants.is_empty() => true,
                 StrictnessOn::Op if !unused_operations.is_empty() => true,
@@ -98,7 +98,7 @@ impl CircuitCompiler {
             };
             break;
         }
-        if !fucked_it_up {
+        if !didnt_pass_strictness {
             return Ok(());
         }
 

@@ -123,7 +123,7 @@ impl RebalancePass {
                     self.ranks[idx]
                 }
             }
-            Gate::Thombstone => unreachable!(),
+            Gate::Tombstone => unreachable!(),
         }
     }
     #[inline]

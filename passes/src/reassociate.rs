@@ -144,7 +144,7 @@ impl ReassociationPass {
     }
     #[inline]
     fn kill_unused_gates(&mut self) {
-        // When thombstone is a Gate, it's operands if necessary, should have their usages change.
+        // When tombstone is a Gate, it's operands if necessary, should have their usages change.
         for to_kill_idx in self.liveness_wrt_usage.get_killing_list() {
             if self.dead.contains(to_kill_idx) { continue; }
             self.dead.insert(*to_kill_idx);
@@ -156,20 +156,20 @@ impl ReassociationPass {
                 Gate::Const(_) => {
                     self.constant_gates.remove(to_kill_idx);
                 },
-                // Propagate Thombstones if operands are only used by this.
+                // Propagate Tombstones if operands are only used by this.
                 Gate::BinOp(_, lhs, rhs) => {
                     for operand in [lhs, rhs] {
                         if self.liveness_wrt_usage.num_usage(operand) == 0 {
-                            self.gates[operand] = Gate::Thombstone;
+                            self.gates[operand] = Gate::Tombstone;
                             self.dead.insert(operand);
                         }
                     }
                 },
-                // A thombstone never will be in the killing list. 
-                Gate::Thombstone => unreachable!(),
+                // A tombstone never will be in the killing list. 
+                Gate::Tombstone => unreachable!(),
             }
             self.seen.remove(&to_kill);
-            self.gates[*to_kill_idx] = Gate::Thombstone;
+            self.gates[*to_kill_idx] = Gate::Tombstone;
         }
         self.liveness_wrt_usage.clear();
     }
@@ -198,7 +198,7 @@ fn learn_topology_of(
         let gate_idx = usize_to_idx(idx);
         let gate = gates[gate_idx];
         match gate {
-            Gate::Input(_) | Gate::Thombstone => {}
+            Gate::Input(_) | Gate::Tombstone => {}
             Gate::Const(_) => {
                 constant_gates.insert(gate_idx);
             }
@@ -313,12 +313,12 @@ fn extract_reassociation_candidates(
                 Gate::BinOp(child_bin_op, b, c) if child_bin_op == current_instruction_bin_op => {
                     (b, c)
                 }
-                // If it is a Thombstone or not same Op, return None
+                // If it is a Tombstone or not same Op, return None
                 _ => return None,
             };
             (a, b, c, is_lhs, rhs_idx)
         }
-        // If it is a Thombstone or not same Op, return None
+        // If it is a Tombstone or not same Op, return None
         _ => return None,
     };
     let reassociation_candidates = ReassociationCandidates {

@@ -43,7 +43,7 @@ pub(crate) fn propagate_new_index_to_using_gates(
         match &mut user_gate {
             // NOTE: A gate user cannot be a constant or an input, their in-degree is 0.
             Gate::Input(_) | Gate::Const(_) => unreachable!(),
-            Gate::Thombstone => continue,
+            Gate::Tombstone => continue,
             Gate::BinOp(_bin_op, lhs, rhs) => {
                 let replace = if *lhs == gate_idx {
                     lhs
@@ -94,7 +94,7 @@ pub(crate) fn new_reassociated_circuit_from(
     // input indices may have changed
     let mut inputs = ThinVec::with_capacity(circuit.inputs().len());
     // We have usages list at hand, we traverse and copy mutated arena by correcting indices on
-    // the way and filtering Thombstones into a new arena. Since the gates are in topological
+    // the way and filtering Tombstones into a new arena. Since the gates are in topological
     // order, it is guaranteed that any Operation using an operand comes after it.
     let mut old_outputs = FxHashSet::from_iter(circuit.outputs().iter());
     // output indices may have changed
