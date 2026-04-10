@@ -15,7 +15,18 @@ use la_arena::Arena;
 use prio_queue::PrioQueue;
 use thin_vec::{ThinVec, thin_vec};
 
-use crate::{folding::fold, idx_to_usize, new_reassociated_circuit_from, usize_to_idx};
+use crate::{PropagationError, folding::fold, idx_to_usize, new_circuit_from, usize_to_idx};
+
+#[derive(Debug)]
+pub enum BalancingError {
+    BalanceReceivedNoOpGate(GateIdx),
+    FlattenReceivedTombstone(GateIdx),
+    RebuildReceivedNoOpSubtree(String),
+    RebuildFinalisedWithEmptyPrioQueue,
+    PropagationFailure(PropagationError),
+}
+
+pub type BalacingResult<T> = Result<T, BalancingError>;
 
 #[derive(Debug)]
 struct RebalancePass {
@@ -63,10 +74,10 @@ impl RebalancePass {
             .insert(from_unbalanced, new_rebalanced);
     }
     #[inline]
-    fn balance(&mut self, root_gate_idx: GateIdx, gates: &Arena<Gate>) {
+    fn balance(&mut self, root_gate_idx: GateIdx, gates: &Arena<Gate>) -> BalacingResult<()> {
         let idx = idx_to_usize(root_gate_idx);
         if self.is_rebalanced(idx) {
-            return;
+            return Ok(());
         }
 
         let mut priority_queue =
@@ -75,18 +86,19 @@ impl RebalancePass {
         let (bin_op, lhs, rhs) = if let Gate::BinOp(bin_op, lhs, rhs) = gates[root_gate_idx] {
             (bin_op, lhs, rhs)
         } else {
-            unreachable!()
+            return Err(BalancingError::BalanceReceivedNoOpGate(root_gate_idx));
         };
 
-        self.ranks[idx] = self.flatten(&mut priority_queue, lhs, gates)
-            + self.flatten(&mut priority_queue, rhs, gates);
+        self.ranks[idx] = self.flatten(&mut priority_queue, lhs, gates)?
+            + self.flatten(&mut priority_queue, rhs, gates)?;
 
-        let rebalanced_gate_idx = self.rebuild(&mut priority_queue, bin_op, gates);
+        let rebalanced_gate_idx = self.rebuild(&mut priority_queue, bin_op, gates)?;
         self.record_mapping(root_gate_idx, rebalanced_gate_idx);
 
         if self.outputs.contains(&root_gate_idx) {
             self.usages[idx_to_usize(rebalanced_gate_idx)].insert(rebalanced_gate_idx);
         }
+        Ok(())
     }
     #[inline]
     fn flatten(
@@ -94,10 +106,10 @@ impl RebalancePass {
         priority_queue: &mut PrioQueue<(GateIdx, isize)>,
         gate_idx: GateIdx,
         gates: &Arena<Gate>,
-    ) -> isize {
+    ) -> BalacingResult<isize> {
         let gate = gates[gate_idx];
         let idx = idx_to_usize(gate_idx);
-        match gate {
+        let rank = match gate {
             Gate::Input(_) => {
                 let rank = 1;
                 self.ranks[idx] = rank;
@@ -112,19 +124,20 @@ impl RebalancePass {
             }
             Gate::BinOp(_, lhs, rhs) => {
                 if self.roots.contains(&gate_idx) {
-                    self.balance(gate_idx, gates);
+                    self.balance(gate_idx, gates)?;
                     let rank = self.ranks[idx];
                     priority_queue.push((gate_idx, rank));
                     rank
                 } else {
-                    self.flatten(priority_queue, lhs, gates);
-                    self.flatten(priority_queue, rhs, gates);
+                    self.flatten(priority_queue, lhs, gates)?;
+                    self.flatten(priority_queue, rhs, gates)?;
                     self.ranks[idx] = self.ranks[idx_to_usize(lhs)] + self.ranks[idx_to_usize(rhs)];
                     self.ranks[idx]
                 }
             }
-            Gate::Tombstone => unreachable!(),
-        }
+            Gate::Tombstone => return Err(BalancingError::FlattenReceivedTombstone(gate_idx)),
+        };
+        Ok(rank)
     }
     #[inline]
     fn get_mapped_index_allocating(&mut self, gate_idx: GateIdx, gates: &Arena<Gate>) -> GateIdx {
@@ -153,13 +166,21 @@ impl RebalancePass {
         priority_queue: &mut PrioQueue<(GateIdx, isize)>,
         op: BinOp,
         gates: &Arena<Gate>,
-    ) -> GateIdx {
+    ) -> BalacingResult<GateIdx> {
         // Since we are operating on binary operations, we need 2 operands. If not, it means it is
         // the finished root. Since the priority_queue also is formed from a binary operation
         // sub-tree, it cannot start with a single element.
         while priority_queue.len() > 1 {
-            let (lhs, lhs_rank) = priority_queue.pop().expect("priority_queue to have a lhs");
-            let (rhs, rhs_rank) = priority_queue.pop().expect("priority_queue to have a rhs");
+            let (lhs, lhs_rank) = priority_queue.pop().ok_or_else(|| {
+                BalancingError::RebuildReceivedNoOpSubtree(String::from(
+                    "priority_queue to have a lhs",
+                ))
+            })?;
+            let (rhs, rhs_rank) = priority_queue.pop().ok_or_else(|| {
+                BalancingError::RebuildReceivedNoOpSubtree(String::from(
+                    "priority_queue to have a rhs",
+                ))
+            })?;
 
             let lhs_index = self.get_mapped_index_allocating(lhs, gates);
             let rhs_index = self.get_mapped_index_allocating(rhs, gates);
@@ -184,12 +205,12 @@ impl RebalancePass {
             priority_queue.push((distinct_index, rank));
         }
         if priority_queue.is_empty() {
-            unreachable!()
+            return Err(BalancingError::RebuildFinalisedWithEmptyPrioQueue);
         }
         let (root_gate_idx, _) = priority_queue
             .pop()
             .expect("priority_queue to have 1 element");
-        self.old_to_new_gate_idx_map[&root_gate_idx]
+        Ok(self.old_to_new_gate_idx_map[&root_gate_idx])
     }
 }
 
@@ -212,7 +233,7 @@ fn is_root(
     false
 }
 
-pub fn rebalance(circuit: &Circuit) -> Circuit {
+pub fn rebalance(circuit: &Circuit) -> BalacingResult<Circuit> {
     let (mut roots_wrt_op_precedence, root_set) = {
         let gates_len = circuit.gates().len();
         let mut usages = thin_vec![FxHashSet::with_hasher(FxBuildHasher::default()); gates_len];
@@ -248,10 +269,11 @@ pub fn rebalance(circuit: &Circuit) -> Circuit {
     let mut rebalance_pass = RebalancePass::new(circuit, root_set);
     while !roots_wrt_op_precedence.is_empty() {
         let (root, _) = roots_wrt_op_precedence.pop().expect("to have a root");
-        rebalance_pass.balance(root, circuit.gates());
+        rebalance_pass.balance(root, circuit.gates())?;
     }
 
-    new_reassociated_circuit_from(circuit, rebalance_pass.rebalanced, &rebalance_pass.usages)
+    new_circuit_from(circuit, rebalance_pass.rebalanced, &rebalance_pass.usages)
+        .map_err(BalancingError::PropagationFailure)
 }
 
 #[cfg(test)]
@@ -271,7 +293,7 @@ mod test {
 
             let circuit = Circuit::with(q, Arena::from_iter(gates.iter().cloned()), idx_inputs, idx_outputs);
 
-            let new_circuit = rebalance(&circuit);
+            let new_circuit = rebalance(&circuit).expect("rebalance to finalise without errors");
             assert_eq!(
                 &Arena::from_iter(expected_gates.iter().cloned()),
                 new_circuit.gates()

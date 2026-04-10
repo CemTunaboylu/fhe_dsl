@@ -25,8 +25,15 @@ use la_arena::Arena;
 use op::BinOp;
 use thin_vec::{ThinVec, thin_vec};
 
-use crate::{folding, is_op_associative_and_commutative, liveness::LivenessWRTUsage, new_reassociated_circuit_from, usize_to_idx};
+use crate::{PropagationError, folding, is_op_associative_and_commutative, liveness::LivenessWRTUsage, new_circuit_from, usize_to_idx};
 
+#[derive(Debug)]
+pub enum ReassociationError {
+    KillReceivedTombstone(GateIdx),
+    PropagationFailure(PropagationError),
+}
+
+pub type ReassociationResult<T> = Result<T, ReassociationError>;
 #[derive(Debug)]
 struct ReassociationPass {
     plain_text_modulus: SupportedType,
@@ -123,9 +130,10 @@ impl ReassociationPass {
         }
     }
     #[inline]
-    fn prepare_for_next_round(&mut self) {
-        self.kill_unused_gates();
+    fn prepare_for_next_round(&mut self) -> ReassociationResult<()>{
+        self.kill_unused_gates()?;
         self.collect_survivors_in_operation_gates();
+        Ok(())
     }
     #[inline]
     // If the reassociation pass is successful, it will render certain nodes of operation gates redundant. They will be killed after the pass, thus we have to housekeep to keep only alive operation gates in the list.  
@@ -143,7 +151,7 @@ impl ReassociationPass {
         self.operation_gates = survivors;
     }
     #[inline]
-    fn kill_unused_gates(&mut self) {
+    fn kill_unused_gates(&mut self) -> ReassociationResult<()>{
         // When tombstone is a Gate, it's operands if necessary, should have their usages change.
         for to_kill_idx in self.liveness_wrt_usage.get_killing_list() {
             if self.dead.contains(to_kill_idx) { continue; }
@@ -166,12 +174,13 @@ impl ReassociationPass {
                     }
                 },
                 // A tombstone never will be in the killing list. 
-                Gate::Tombstone => unreachable!(),
+                Gate::Tombstone => return Err(ReassociationError::KillReceivedTombstone(*to_kill_idx)),
             }
             self.seen.remove(&to_kill);
             self.gates[*to_kill_idx] = Gate::Tombstone;
         }
         self.liveness_wrt_usage.clear();
+        Ok(())
     }
 }
 
@@ -233,7 +242,7 @@ fn learn_topology_of(
 *
 * a+c+b -> a+b+c -> x+c
 */
-pub fn reuse_driven_reassociate(circuit: &Circuit) -> Circuit {
+pub fn reuse_driven_reassociate(circuit: &Circuit) -> ReassociationResult<Circuit> {
     let mut reassociation_pass = ReassociationPass::new(circuit);
 
     let mut reassociated = true;
@@ -260,10 +269,10 @@ pub fn reuse_driven_reassociate(circuit: &Circuit) -> Circuit {
                 reassociated = true;
             }
         }
-        reassociation_pass.prepare_for_next_round();
+        reassociation_pass.prepare_for_next_round()?;
     }
 
-    new_reassociated_circuit_from(circuit, reassociation_pass.gates, reassociation_pass.liveness_wrt_usage.get_usages())
+    new_circuit_from(circuit, reassociation_pass.gates, reassociation_pass.liveness_wrt_usage.get_usages()).map_err( ReassociationError::PropagationFailure)
 }
 
 #[derive(Debug)]
@@ -556,7 +565,7 @@ mod test {
 
             let circuit = Circuit::with(q, Arena::from_iter(gates.iter().cloned()), idx_inputs, idx_outputs);
 
-            let new_circuit = reuse_driven_reassociate(&circuit);
+            let new_circuit = reuse_driven_reassociate(&circuit).expect("reassocation to finalise without errors");
             assert_eq!(
                 &Arena::from_iter(expected_gates.iter().cloned()),
                 new_circuit.gates()
