@@ -26,7 +26,7 @@ pub enum BalancingError<T: Supported> {
     PropagationFailure(PropagationError<T>),
 }
 
-pub type BalacingResult<T> = Result<Circuit<T>, BalancingError<T>>;
+pub type BalancingResult<T> = Result<Circuit<T>, BalancingError<T>>;
 
 #[derive(Debug)]
 struct RebalancePass<T: Supported> {
@@ -74,7 +74,11 @@ impl<T: Supported> RebalancePass<T> {
             .insert(from_unbalanced, new_rebalanced);
     }
     #[inline]
-    fn balance(&mut self, root_gate_idx: GateIdx<T>, gates: &Arena<Gate<T>>) -> Result<(), BalancingError<T>> {
+    fn balance(
+        &mut self,
+        root_gate_idx: GateIdx<T>,
+        gates: &Arena<Gate<T>>,
+    ) -> Result<(), BalancingError<T>> {
         let idx = idx_to_usize(root_gate_idx);
         if self.is_rebalanced(idx) {
             return Ok(());
@@ -140,7 +144,11 @@ impl<T: Supported> RebalancePass<T> {
         Ok(rank)
     }
     #[inline]
-    fn get_mapped_index_allocating(&mut self, gate_idx: GateIdx<T>, gates: &Arena<Gate<T>>) -> GateIdx<T> {
+    fn get_mapped_index_allocating(
+        &mut self,
+        gate_idx: GateIdx<T>,
+        gates: &Arena<Gate<T>>,
+    ) -> GateIdx<T> {
         if let Some(mapped) = self.old_to_new_gate_idx_map.get(&gate_idx) {
             *mapped
         } else {
@@ -233,7 +241,7 @@ fn is_root<T: Supported>(
     false
 }
 
-pub fn rebalance<T: Supported>(circuit: &Circuit<T>) -> BalacingResult<T> {
+pub fn rebalance<T: Supported>(circuit: &Circuit<T>) -> BalancingResult<T> {
     let (mut roots_wrt_op_precedence, root_set) = {
         let gates_len = circuit.gates().len();
         let mut usages = thin_vec![FxHashSet::with_hasher(FxBuildHasher::default()); gates_len];
