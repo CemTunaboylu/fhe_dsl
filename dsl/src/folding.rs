@@ -1,8 +1,10 @@
 use la_arena::Arena;
 
-use crate::{SupportedType, expr::Expr};
+use common::Supported;
 
-pub fn fold(expr: Expr, arena: &mut Arena<Expr>, plain_text_modulus: SupportedType) -> Expr {
+use crate::expr::Expr;
+
+pub fn fold<T: Supported>(expr: Expr<T>, arena: &mut Arena<Expr<T>>, plain_text_modulus: T) -> Expr<T> {
     match expr {
         Expr::Input(_) | Expr::Const(_) => expr,
         Expr::BinOp(bin_op, lhs_idx, rhs_idx) => {

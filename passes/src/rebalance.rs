@@ -4,7 +4,7 @@
 //! operator precedence, e.g. rebalances * roots before + roots.
 //! More on the algorithm can be found on the corresponding wiki page.
 use ir::{
-    SupportedType,
+    Supported,
     circuit::Circuit,
     gate::{Gate, GateIdx},
 };
@@ -18,34 +18,34 @@ use thin_vec::{ThinVec, thin_vec};
 use crate::{PropagationError, folding::fold, idx_to_usize, new_circuit_from, usize_to_idx};
 
 #[derive(Debug)]
-pub enum BalancingError {
-    BalanceReceivedNoOpGate(GateIdx),
-    FlattenReceivedTombstone(GateIdx),
+pub enum BalancingError<T: Supported> {
+    BalanceReceivedNoOpGate(GateIdx<T>),
+    FlattenReceivedTombstone(GateIdx<T>),
     RebuildReceivedNoOpSubtree(String),
     RebuildFinalisedWithEmptyPrioQueue,
-    PropagationFailure(PropagationError),
+    PropagationFailure(PropagationError<T>),
 }
 
-pub type BalacingResult<T> = Result<T, BalancingError>;
+pub type BalancingResult<T> = Result<Circuit<T>, BalancingError<T>>;
 
 #[derive(Debug)]
-struct RebalancePass {
+struct RebalancePass<T: Supported> {
     index: usize,
-    old_to_new_gate_idx_map: FxHashMap<GateIdx, GateIdx>,
-    outputs: FxHashSet<GateIdx>,
-    plain_text_modulus: SupportedType,
+    old_to_new_gate_idx_map: FxHashMap<GateIdx<T>, GateIdx<T>>,
+    outputs: FxHashSet<GateIdx<T>>,
+    plain_text_modulus: T,
     ranks: ThinVec<isize>,
-    rebalanced: Arena<Gate>,
-    roots: FxHashSet<GateIdx>,
-    usages: ThinVec<FxHashSet<GateIdx>>,
+    rebalanced: Arena<Gate<T>>,
+    roots: FxHashSet<GateIdx<T>>,
+    usages: ThinVec<FxHashSet<GateIdx<T>>>,
 }
 
-impl RebalancePass {
+impl<T: Supported> RebalancePass<T> {
     #[inline]
-    fn new(circuit: &Circuit, roots: FxHashSet<GateIdx>) -> Self {
+    fn new(circuit: &Circuit<T>, roots: FxHashSet<GateIdx<T>>) -> Self {
         let gates_len = circuit.gates().len();
         let index = gates_len;
-        let q = circuit.plain_text_modulus;
+        let q = circuit.get_plain_text_modulus();
         let ranks = thin_vec![-1; gates_len];
         let rebalanced = Arena::with_capacity(gates_len);
         let root_old_to_new_gate_idx_map = FxHashMap::with_hasher(FxBuildHasher::default());
@@ -69,19 +69,23 @@ impl RebalancePass {
         self.ranks[idx] >= 0
     }
     #[inline]
-    fn record_mapping(&mut self, from_unbalanced: GateIdx, new_rebalanced: GateIdx) {
+    fn record_mapping(&mut self, from_unbalanced: GateIdx<T>, new_rebalanced: GateIdx<T>) {
         self.old_to_new_gate_idx_map
             .insert(from_unbalanced, new_rebalanced);
     }
     #[inline]
-    fn balance(&mut self, root_gate_idx: GateIdx, gates: &Arena<Gate>) -> BalacingResult<()> {
+    fn balance(
+        &mut self,
+        root_gate_idx: GateIdx<T>,
+        gates: &Arena<Gate<T>>,
+    ) -> Result<(), BalancingError<T>> {
         let idx = idx_to_usize(root_gate_idx);
         if self.is_rebalanced(idx) {
             return Ok(());
         }
 
         let mut priority_queue =
-            PrioQueue::new(|l: &(GateIdx, isize), r: &(GateIdx, isize)| l.1 < r.1);
+            PrioQueue::new(|l: &(GateIdx<T>, isize), r: &(GateIdx<T>, isize)| l.1 < r.1);
 
         let (bin_op, lhs, rhs) = if let Gate::BinOp(bin_op, lhs, rhs) = gates[root_gate_idx] {
             (bin_op, lhs, rhs)
@@ -103,10 +107,10 @@ impl RebalancePass {
     #[inline]
     fn flatten(
         &mut self,
-        priority_queue: &mut PrioQueue<(GateIdx, isize)>,
-        gate_idx: GateIdx,
-        gates: &Arena<Gate>,
-    ) -> BalacingResult<isize> {
+        priority_queue: &mut PrioQueue<(GateIdx<T>, isize)>,
+        gate_idx: GateIdx<T>,
+        gates: &Arena<Gate<T>>,
+    ) -> Result<isize, BalancingError<T>> {
         let gate = gates[gate_idx];
         let idx = idx_to_usize(gate_idx);
         let rank = match gate {
@@ -140,7 +144,11 @@ impl RebalancePass {
         Ok(rank)
     }
     #[inline]
-    fn get_mapped_index_allocating(&mut self, gate_idx: GateIdx, gates: &Arena<Gate>) -> GateIdx {
+    fn get_mapped_index_allocating(
+        &mut self,
+        gate_idx: GateIdx<T>,
+        gates: &Arena<Gate<T>>,
+    ) -> GateIdx<T> {
         if let Some(mapped) = self.old_to_new_gate_idx_map.get(&gate_idx) {
             *mapped
         } else {
@@ -149,13 +157,13 @@ impl RebalancePass {
         }
     }
     #[inline]
-    fn alloc_with_mapped_idx(&mut self, gate: Gate, to_be_mapped_to: GateIdx) -> GateIdx {
+    fn alloc_with_mapped_idx(&mut self, gate: Gate<T>, to_be_mapped_to: GateIdx<T>) -> GateIdx<T> {
         let index = self.rebalanced.alloc(gate);
         self.record_mapping(to_be_mapped_to, index);
         index
     }
     #[inline]
-    fn get_distinct_index(&mut self) -> GateIdx {
+    fn get_distinct_index(&mut self) -> GateIdx<T> {
         let d = self.index;
         self.index += 1;
         usize_to_idx(d)
@@ -163,10 +171,10 @@ impl RebalancePass {
     #[inline]
     fn rebuild(
         &mut self,
-        priority_queue: &mut PrioQueue<(GateIdx, isize)>,
+        priority_queue: &mut PrioQueue<(GateIdx<T>, isize)>,
         op: BinOp,
-        gates: &Arena<Gate>,
-    ) -> BalacingResult<GateIdx> {
+        gates: &Arena<Gate<T>>,
+    ) -> Result<GateIdx<T>, BalancingError<T>> {
         // Since we are operating on binary operations, we need 2 operands. If not, it means it is
         // the finished root. Since the priority_queue also is formed from a binary operation
         // sub-tree, it cannot start with a single element.
@@ -215,11 +223,11 @@ impl RebalancePass {
 }
 
 #[inline]
-fn is_root(
-    gate_idx: GateIdx,
+fn is_root<T: Supported>(
+    gate_idx: GateIdx<T>,
     op: BinOp,
-    usages: &[FxHashSet<GateIdx>],
-    gates: &Arena<Gate>,
+    usages: &[FxHashSet<GateIdx<T>>],
+    gates: &Arena<Gate<T>>,
 ) -> bool {
     let idx = idx_to_usize(gate_idx);
     if usages[idx].len() > 1 {
@@ -233,11 +241,11 @@ fn is_root(
     false
 }
 
-pub fn rebalance(circuit: &Circuit) -> BalacingResult<Circuit> {
+pub fn rebalance<T: Supported>(circuit: &Circuit<T>) -> BalancingResult<T> {
     let (mut roots_wrt_op_precedence, root_set) = {
         let gates_len = circuit.gates().len();
         let mut usages = thin_vec![FxHashSet::with_hasher(FxBuildHasher::default()); gates_len];
-        let mut operation_gates = ThinVec::<GateIdx>::new();
+        let mut operation_gates = ThinVec::<GateIdx<T>>::new();
 
         for (gate_idx, gate) in circuit.gates().iter() {
             if let Gate::BinOp(_, lhs_idx, rhs_idx) = gate {
@@ -251,8 +259,8 @@ pub fn rebalance(circuit: &Circuit) -> BalacingResult<Circuit> {
         }
 
         let mut roots_wrt_precedence =
-            PrioQueue::new(|l: &(GateIdx, usize), r: &(GateIdx, usize)| l.1 > r.1);
-        let mut roots = FxHashSet::with_hasher(FxBuildHasher::default());
+            PrioQueue::new(|l: &(GateIdx<T>, usize), r: &(GateIdx<T>, usize)| l.1 > r.1);
+        let mut roots: FxHashSet<GateIdx<T>> = FxHashSet::with_hasher(FxBuildHasher::default());
         for op_gate_idx in operation_gates {
             let op_gate = circuit.gates()[op_gate_idx];
             if let Gate::BinOp(op, _, _) = op_gate
@@ -284,23 +292,42 @@ mod test {
     use la_arena::Arena;
     use parameterized_test::create;
 
+    fn assert_supported<T: Supported>() {}
+
+    #[test]
+    fn all_supported_integer_types_work_for_rebalance() {
+        assert_supported::<i8>();
+        assert_supported::<i16>();
+        assert_supported::<i32>();
+        assert_supported::<i64>();
+        assert_supported::<u8>();
+        assert_supported::<u16>();
+        assert_supported::<u32>();
+        assert_supported::<u64>();
+    }
+
     create! {
         tree_rebalancing_reassociate,
         (gates, inputs, outputs, expected_gates, expected_inputs, expected_outputs), {
-            let idx_inputs : ThinVec<GateIdx> = inputs.iter().map(|i: &usize| usize_to_idx(*i)).collect();
-            let idx_outputs : ThinVec<GateIdx> = outputs.iter().map(|i: &usize| usize_to_idx(*i)).collect();
-            let q = 11;
+            let idx_inputs : ThinVec<GateIdx<u64>> = inputs.iter().map(|i: &usize| usize_to_idx(*i)).collect();
+            let idx_outputs : ThinVec<GateIdx<u64>> = outputs.iter().map(|i: &usize| usize_to_idx(*i)).collect();
+            let q = 11u64;
 
-            let circuit = Circuit::with(q, Arena::from_iter(gates.iter().cloned()), idx_inputs, idx_outputs);
+            let circuit = Circuit::with(
+                q,
+                Arena::from_iter(gates.iter().cloned()),
+                idx_inputs,
+                idx_outputs
+            ).expect("to have non-zero modulus");
 
             let new_circuit = rebalance(&circuit).expect("rebalance to finalise without errors");
             assert_eq!(
                 &Arena::from_iter(expected_gates.iter().cloned()),
                 new_circuit.gates()
             );
-            let expected_inputs = ThinVec::from_iter(expected_inputs.iter().cloned().map(usize_to_idx));
+            let expected_inputs: ThinVec<GateIdx<u64>> = ThinVec::from_iter(expected_inputs.iter().cloned().map(usize_to_idx));
             assert_eq!(expected_inputs, new_circuit.inputs());
-            let expected_outputs = ThinVec::from_iter(expected_outputs.iter().cloned().map(usize_to_idx));
+            let expected_outputs: ThinVec<GateIdx<u64>> = ThinVec::from_iter(expected_outputs.iter().cloned().map(usize_to_idx));
             assert_eq!(expected_outputs, new_circuit.outputs());
         }
     }
@@ -341,13 +368,13 @@ mod test {
         ),
         folding_constants_rewrite: (
             &[
-                Gate::Const(5),
+                Gate::Const(5u64),
                 Gate::BinOp(BinOp::Add, usize_to_idx(0), usize_to_idx(0)),
             ],
             &[],
             &[1],
             &[
-                Gate::Const(10),                                            // folded 5+5
+                Gate::Const(10u64),                                         // folded 5+5
             ],
             &[],
             &[0],
@@ -401,7 +428,7 @@ mod test {
                 Gate::Input(1),                                            // b
                 Gate::Input(2),                                            // c
                 Gate::Input(3),                                            // d
-                Gate::Const(5),
+                Gate::Const(5u64),
                 /*5*/Gate::BinOp(BinOp::Add, usize_to_idx(0), usize_to_idx(1)), // a+b
                 /*6*/Gate::BinOp(BinOp::Add, usize_to_idx(5), usize_to_idx(4)), // (a+b)+5
                 /*7*/Gate::BinOp(BinOp::Add, usize_to_idx(6), usize_to_idx(2)), // ((a+b)+5)+c
@@ -411,7 +438,7 @@ mod test {
             &[0,1,2,3],
             &[9],
             &[
-                Gate::Const(10),                                            // folded
+                Gate::Const(10u64),                                         // folded
                 Gate::Input(1),                                            // b
                 Gate::BinOp(BinOp::Add, usize_to_idx(0), usize_to_idx(1)), // b+10
                 Gate::Input(2),                                            // c
@@ -440,7 +467,7 @@ mod test {
                 Gate::Input(1),                                            // b
                 Gate::Input(2),                                            // c
                 Gate::Input(3),                                            // d
-                Gate::Const(5),
+                Gate::Const(5u64),
                 /*5*/Gate::BinOp(BinOp::Mul, usize_to_idx(0), usize_to_idx(1)), // a*b
                 /*6*/Gate::BinOp(BinOp::Mul, usize_to_idx(5), usize_to_idx(4)), // (a*b)*5
                 /*7*/Gate::BinOp(BinOp::Mul, usize_to_idx(6), usize_to_idx(2)), // ((a*b)*5)*c
@@ -450,7 +477,7 @@ mod test {
             &[0,1,2,3],
             &[9],
             &[
-                Gate::Const(3),                                            // folded
+                Gate::Const(3u64),                                          // folded
                 Gate::Input(1),                                            // b
                 Gate::BinOp(BinOp::Mul, usize_to_idx(0), usize_to_idx(1)), // b*3
                 Gate::Input(2),                                            // c
@@ -481,7 +508,7 @@ mod test {
                 Gate::Input(2),                                            // c
                 Gate::Input(3),                                            // d
                 Gate::Input(4),                                            // e
-                Gate::Const(5),
+                Gate::Const(5u64),
 
                 /*6*/Gate::BinOp(BinOp::Mul, usize_to_idx(0), usize_to_idx(5)), // a*5
                 /*7*/Gate::BinOp(BinOp::Mul, usize_to_idx(6), usize_to_idx(1)), // (a*5)*b
@@ -496,7 +523,7 @@ mod test {
             &[0,1,2,3,4],
             &[11],
             &[
-                Gate::Const(3),                                            // folded
+                Gate::Const(3u64),                                          // folded
                 Gate::Input(1),                                            // b
                 Gate::BinOp(BinOp::Mul, usize_to_idx(0), usize_to_idx(1)), // b*3
                 Gate::Input(0),                                            // a

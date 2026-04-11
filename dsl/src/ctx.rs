@@ -1,5 +1,6 @@
+use common::{NonZeroModulusResult, Supported, validate_non_zero};
+
 use crate::{
-    SupportedType,
     compilation_mode::CompilationMode,
     expr::{Expr, ExprHandle, ExprIdx},
     folding::fold,
@@ -16,55 +17,61 @@ use thin_vec::{IntoIter as ThinIntoIter, ThinVec};
 
 use std::{cell::RefCell, rc::Rc};
 
-pub type ContextRef = RefCell<Context>;
+pub type ContextRef<T> = RefCell<Context<T>>;
 
 #[derive(Clone, Debug)]
-pub struct ContextHandle(pub Rc<ContextRef>);
+pub struct ContextHandle<T: Supported>(pub Rc<ContextRef<T>>);
 
-impl ContextHandle {
-    pub fn get(&self, ix: ExprIdx) -> Expr {
+impl<T: Supported> ContextHandle<T> {
+    pub fn get(&self, ix: ExprIdx<T>) -> Expr<T> {
         let ctx_ref = self.0.borrow();
         ctx_ref.arena[ix]
     }
-    pub(crate) fn expr_handle_for(&self, expr: Expr) -> ExprHandle {
+    pub(crate) fn expr_handle_for(&self, expr: Expr<T>) -> ExprHandle<T> {
         let expr_idx = self.append(expr);
         ExprHandle {
             idx: expr_idx,
             ctx_handle: self.clone(),
         }
     }
-    pub fn input(&self, index: usize) -> ExprHandle {
+    pub fn input(&self, index: usize) -> ExprHandle<T> {
         let kind = Expr::Input(index);
         self.expr_handle_for(kind)
     }
-    pub fn constant(&self, value: SupportedType) -> ExprHandle {
+    pub fn constant(&self, value: T) -> ExprHandle<T> {
         let kind = Expr::Const(value);
         self.expr_handle_for(kind)
     }
-    pub(crate) fn append(&self, expr: Expr) -> ExprIdx {
+    pub(crate) fn append(&self, expr: Expr<T>) -> ExprIdx<T> {
         let mut ctx_ref = self.0.borrow_mut();
         ctx_ref.append(expr)
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct Context {
-    pub(crate) plain_text_modulus: SupportedType,
+pub struct Context<T: Supported> {
+    plain_text_modulus: T,
     pub(crate) mode: CompilationMode,
-    pub(crate) arena: Arena<Expr>,
-    pub(crate) interner: Interner<Expr>,
+    pub(crate) arena: Arena<Expr<T>>,
+    pub(crate) interner: Interner<Expr<T>>,
 }
 
-impl Context {
-    pub(crate) fn new(q: SupportedType, mode: CompilationMode) -> Self {
+impl<T: Supported> Context<T> {
+    pub(crate) fn new(q: T, mode: CompilationMode) -> NonZeroModulusResult<Self> {
+        validate_non_zero(q)?;
         let arena = Arena::new();
         let interner = Interner::new();
-        Self {
+        let s = Self {
             plain_text_modulus: q,
             mode,
             arena,
             interner,
-        }
+        };
+        Ok(s)
+    }
+
+    pub(crate) fn get_plain_text_modulus(&self) -> T {
+        self.plain_text_modulus
     }
     pub(crate) fn create_set_of_all_indices(&self) -> BitSet {
         let mut set = BitSet::<u32>::new();
@@ -75,7 +82,7 @@ impl Context {
         }
         set
     }
-    pub fn append(&mut self, mut expr: Expr) -> ExprIdx {
+    pub fn append(&mut self, mut expr: Expr<T>) -> ExprIdx<T> {
         expr = fold(expr, &mut self.arena, self.plain_text_modulus);
         self.interner.intern(expr, &mut self.arena)
     }

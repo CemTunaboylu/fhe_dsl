@@ -1,8 +1,9 @@
 use la_arena::Arena;
 
-use ir::{SupportedType, gate::Gate};
+use common::Supported;
+use ir::gate::Gate;
 
-pub fn fold(gate: Gate, arena: &Arena<Gate>, plain_text_modulus: SupportedType) -> Gate {
+pub fn fold<T: Supported>(gate: Gate<T>, arena: &Arena<Gate<T>>, plain_text_modulus: T) -> Gate<T> {
     match gate {
         Gate::Tombstone => gate,
         Gate::Input(_) | Gate::Const(_) => gate,

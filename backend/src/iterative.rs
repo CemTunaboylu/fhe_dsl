@@ -1,6 +1,6 @@
 use common::idx_to_usize;
 use fxhash::{FxBuildHasher, FxHashMap};
-use ir::SupportedType;
+use ir::Supported;
 use ir::circuit::Circuit;
 use ir::gate::{Gate, GateIdx};
 use op::BinOp;
@@ -10,19 +10,27 @@ use crate::validation::validate_same_length;
 use crate::{Backend, NoisyElement};
 use crate::{BackendResult, noise::Noise};
 
-pub(crate) fn eval_with_iterative_traversal<E: NoisyElement, N: Noise, B: Backend<Elem = E>>(
-    circuit: &Circuit,
+pub(crate) fn eval_with_iterative_traversal<E, N, S, B>(
+    circuit: &Circuit<S>,
     backend: &mut B,
-    with: &[SupportedType],
-) -> BackendResult<ThinVec<B::Elem>> {
+    with: &[S],
+) -> BackendResult<ThinVec<B::Elem>>
+where
+    E: NoisyElement,
+    N: Noise,
+    S: Supported,
+    B: Backend<S, Elem = E>,
+{
     validate_same_length(circuit, with)?;
-    backend.set_plain_text_modulus(circuit.plain_text_modulus);
+    backend
+        .set_plain_text_modulus(circuit.get_plain_text_modulus())
+        .expect("circuit to have non-zero modulus");
 
     let mut roots = circuit.outputs().iter();
     let mut dfs_stack = ThinVec::new();
 
     let mut current_node = roots.next().copied();
-    let mut gate_idx_to_elem: FxHashMap<GateIdx, E> =
+    let mut gate_idx_to_elem: FxHashMap<GateIdx<S>, E> =
         FxHashMap::with_hasher(FxBuildHasher::default());
 
     // Iterative post order traversal from each output node eliminates all the

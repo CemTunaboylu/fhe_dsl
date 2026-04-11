@@ -5,47 +5,47 @@ use crate::{
     iterative::eval_with_iterative_traversal,
     noise::{MockNoise, Noise},
 };
-use common::idx_to_usize;
-use ir::{SupportedType, circuit::Circuit, gate::Gate};
+use common::{NonZeroModulusResult, default_non_zero, idx_to_usize, validate_non_zero};
+use ir::{Supported, circuit::Circuit, gate::Gate};
 use op::BinOp;
 use thin_vec::{ThinVec, thin_vec};
 
 use crate::{Backend, BackendResult, validation::validate_same_length};
 
 #[derive(Clone, Debug, Default)]
-pub struct MockFHEBackend<N: Noise> {
-    plain_text_modulus: SupportedType,
+pub struct MockFHEBackend<T: Supported, N: Noise> {
+    plain_text_modulus: T,
     noise: N,
 }
 
-impl<N: Noise> MockFHEBackend<N> {
+impl<T: Supported, N: Noise> MockFHEBackend<T, N> {
     pub fn new(noise_budget: usize) -> Self {
         Self {
-            plain_text_modulus: SupportedType::default(),
+            plain_text_modulus: default_non_zero(),
             noise: Noise::new(noise_budget),
         }
     }
 }
 
-pub fn default_mock_fhe_backend(noise_budget: usize) -> MockFHEBackend<MockNoise> {
-    MockFHEBackend::<MockNoise>::new(noise_budget)
+pub fn default_mock_fhe_backend<T: Supported>(noise_budget: usize) -> MockFHEBackend<T, MockNoise> {
+    MockFHEBackend::<T, MockNoise>::new(noise_budget)
 }
 
-const ENC_NOISE: usize = 1; // initial noise added during encryption 
-const ADD_COST: usize = 1; // noises are added 
+const ENC_NOISE: usize = 1; // initial noise added during encryption
+const ADD_COST: usize = 1; // noises are added
 const MUL_COST: usize = 5; // noises generally compound thus larger mock value
 
-impl<N: Noise> Backend for MockFHEBackend<N> {
-    type Elem = MockFHEElement;
+impl<T: Supported, N: Noise> Backend<T> for MockFHEBackend<T, N> {
+    type Elem = MockFHEElement<T>;
 
     fn add(&mut self, lhs: &Self::Elem, rhs: &Self::Elem) -> Self::Elem {
-        let mut element = self.constant(lhs.value + rhs.value);
+        let mut element = self.constant(lhs.value.wrapping_add(&rhs.value));
         element.depth = max(lhs.depth, rhs.depth);
         element.noise = max(lhs.noise, rhs.noise) + ADD_COST;
         element
     }
     fn sub(&mut self, lhs: &Self::Elem, rhs: &Self::Elem) -> Self::Elem {
-        let mut element = self.constant(lhs.value - rhs.value);
+        let mut element = self.constant(lhs.value.wrapping_sub(&rhs.value));
         element.depth = max(lhs.depth, rhs.depth);
         element.noise = max(lhs.noise, rhs.noise) + ADD_COST;
         element
@@ -55,19 +55,19 @@ impl<N: Noise> Backend for MockFHEBackend<N> {
     // folded thus we don't consider it's depth here. We consider other_than_const * op is to have
     // the same depth and noise as other_than_const * other_than_const.
     fn mul(&mut self, lhs: &Self::Elem, rhs: &Self::Elem) -> Self::Elem {
-        let mut element = self.constant(lhs.value * rhs.value);
+        let mut element = self.constant(lhs.value.wrapping_mul(&rhs.value));
         element.depth = max(lhs.depth, rhs.depth) + 1;
         // NOTE: Noise during multiplication grows exponentially, thus the multiplication.
         element.noise = lhs.noise * rhs.noise + MUL_COST;
         element
     }
-    fn constant(&mut self, c: SupportedType) -> Self::Elem {
+    fn constant(&mut self, c: T) -> Self::Elem {
         MockFHEElement {
             value: c % self.plain_text_modulus,
             ..Default::default()
         }
     }
-    fn input(&mut self, c: SupportedType) -> Self::Elem {
+    fn input(&mut self, c: T) -> Self::Elem {
         MockFHEElement {
             value: c % self.plain_text_modulus,
             noise: ENC_NOISE,
@@ -77,13 +77,9 @@ impl<N: Noise> Backend for MockFHEBackend<N> {
     // TODO: Introduce a cache to avoid evaluating the same circuit twice.
     // NOTE: eval currently acts as the inputs are given plaintext, thus the mock fhe backend
     // pseudo-encrypts them with elements having a noise.
-    fn eval(
-        &mut self,
-        circuit: &Circuit,
-        with: &[SupportedType],
-    ) -> BackendResult<ThinVec<Self::Elem>> {
+    fn eval(&mut self, circuit: &Circuit<T>, with: &[T]) -> BackendResult<ThinVec<Self::Elem>> {
         validate_same_length(circuit, with)?;
-        self.plain_text_modulus = circuit.plain_text_modulus;
+        self.plain_text_modulus = circuit.get_plain_text_modulus();
         // NOTE: we restart noise because certain outputs can be below the budget but if we
         // evaluate an output which overwhelms the noise budget, we won't be able to evaluate
         // anything after that. Also the max and index values will be wrong no matter the case,
@@ -120,18 +116,20 @@ impl<N: Noise> Backend for MockFHEBackend<N> {
     }
     fn eval_outputs(
         &mut self,
-        circuit: &Circuit,
-        with: &[SupportedType],
+        circuit: &Circuit<T>,
+        with: &[T],
     ) -> BackendResult<ThinVec<Self::Elem>> {
         // NOTE: we restart noise because certain outputs can be below the budget but if we
         // evaluate an output which overwhelms the noise budget, we won't be able to evaluate
         // anything after that. Also the max and index values will be wrong no matter the case,
         // once a circuit is evaluated.
         self.noise = Noise::new(self.noise.get_noise_budget());
-        eval_with_iterative_traversal::<Self::Elem, N, Self>(circuit, self, with)
+        eval_with_iterative_traversal::<Self::Elem, N, T, Self>(circuit, self, with)
     }
-    fn set_plain_text_modulus(&mut self, q: SupportedType) {
+    fn set_plain_text_modulus(&mut self, q: T) -> NonZeroModulusResult<()> {
+        validate_non_zero(q)?;
         self.plain_text_modulus = q;
+        Ok(())
     }
     fn get_noise_mul(&mut self) -> &mut impl Noise {
         &mut self.noise
@@ -148,8 +146,22 @@ mod test {
     use ir::gate::GateIdx;
     use la_arena::Arena;
 
-    fn into_gate_idx(i: u32) -> GateIdx {
+    fn into_gate_idx(i: u32) -> GateIdx<u64> {
         u32_to_idx(i)
+    }
+
+    fn assert_supported<T: Supported>() {}
+
+    #[test]
+    fn all_supported_integer_types_work_for_mock_fhe_backend() {
+        assert_supported::<i8>();
+        assert_supported::<i16>();
+        assert_supported::<i32>();
+        assert_supported::<i64>();
+        assert_supported::<u8>();
+        assert_supported::<u16>();
+        assert_supported::<u32>();
+        assert_supported::<u64>();
     }
 
     #[test]
@@ -164,17 +176,18 @@ mod test {
         ];
         let inputs = thin_vec![into_gate_idx(0), into_gate_idx(1)];
         let outputs = thin_vec![into_gate_idx(3), into_gate_idx(4), into_gate_idx(5)];
-        let q = 11;
+        let q = 11u64;
 
         let circuit = Circuit::with(
             q,
             Arena::from_iter(gates.iter().map(Clone::clone)),
             inputs,
             outputs,
-        );
+        )
+        .expect("to have non-zero modulus");
 
-        let noise_budget = 1689; // noise becomes 1686 at the end 
-        let mut mock_fhe = default_mock_fhe_backend(noise_budget);
+        let noise_budget = 1689; // noise becomes 1686 at the end
+        let mut mock_fhe = default_mock_fhe_backend::<u64>(noise_budget);
         let error = mock_fhe
             .eval(&circuit, &[1])
             .expect_err("should have failed");
@@ -193,32 +206,32 @@ mod test {
 
         let expected_elements = thin_vec![
             MockFHEElement {
-                value: 1,
+                value: 1u64,
                 depth: 0,
                 noise: input_noise,
             },
             MockFHEElement {
-                value: 1,
+                value: 1u64,
                 depth: 0,
                 noise: input_noise,
             },
             MockFHEElement {
-                value: 1,
+                value: 1u64,
                 depth: 1,
                 noise: single_mul_noise,
             },
             MockFHEElement {
-                value: 1,
+                value: 1u64,
                 depth: 2,
                 noise: double_mul_noise,
             },
             MockFHEElement {
-                value: 1,
+                value: 1u64,
                 depth: 3,
                 noise: triple_mul_noise,
             },
             MockFHEElement {
-                value: 1,
+                value: 1u64,
                 depth: 3,
                 noise: single_and_double_mul_noise,
             },
@@ -239,17 +252,18 @@ mod test {
         ];
         let inputs = thin_vec![into_gate_idx(0), into_gate_idx(1)];
         let outputs = thin_vec![into_gate_idx(3), into_gate_idx(4), into_gate_idx(5)];
-        let q = 11;
+        let q = 11u64;
 
         let circuit = Circuit::with(
             q,
             Arena::from_iter(gates.iter().map(Clone::clone)),
             inputs,
             outputs,
-        );
+        )
+        .expect("to have non-zero modulus");
 
         let noise_budget = ENC_NOISE + MUL_COST;
-        let mut mock_fhe = default_mock_fhe_backend(noise_budget);
+        let mut mock_fhe = default_mock_fhe_backend::<u64>(noise_budget);
         let error = mock_fhe
             .eval(&circuit, &[1, 1])
             .expect_err("should have failed due to noise budget");
@@ -276,17 +290,18 @@ mod test {
         ];
         let inputs = thin_vec![into_gate_idx(0), into_gate_idx(1)];
         let outputs = thin_vec![into_gate_idx(3), into_gate_idx(4), into_gate_idx(5)];
-        let q = 11;
+        let q = 11u64;
 
         let circuit = Circuit::with(
             q,
             Arena::from_iter(gates.iter().map(Clone::clone)),
             inputs,
             outputs,
-        );
+        )
+        .expect("to have non-zero modulus");
 
         let noise_budget = ENC_NOISE + MUL_COST;
-        let mut mock_fhe = default_mock_fhe_backend(noise_budget);
+        let mut mock_fhe = default_mock_fhe_backend::<u64>(noise_budget);
         let results = mock_fhe
             .eval(&circuit, &[1, 1])
             .expect("should have evaluated");
@@ -296,32 +311,32 @@ mod test {
 
         let expected_elements = thin_vec![
             MockFHEElement {
-                value: 1,
+                value: 1u64,
                 depth: 0,
                 noise: input_noise,
             },
             MockFHEElement {
-                value: 1,
+                value: 1u64,
                 depth: 0,
                 noise: input_noise,
             },
             MockFHEElement {
-                value: 2,
+                value: 2u64,
                 depth: 0,
                 noise: single_add_noise,
             },
             MockFHEElement {
-                value: 0,
+                value: 0u64,
                 depth: 0,
                 noise: single_add_noise + ADD_COST,
             },
             MockFHEElement {
-                value: 0,
+                value: 0u64,
                 depth: 0,
                 noise: single_add_noise + 2 * ADD_COST,
             },
             MockFHEElement {
-                value: 2,
+                value: 2u64,
                 depth: 0,
                 noise: single_add_noise + 2 * ADD_COST,
             },
@@ -342,17 +357,18 @@ mod test {
         ];
         let inputs = thin_vec![into_gate_idx(0), into_gate_idx(1)];
         let outputs = thin_vec![into_gate_idx(3), into_gate_idx(4), into_gate_idx(5)];
-        let q = 11;
+        let q = 11u64;
 
         let circuit = Circuit::with(
             q,
             Arena::from_iter(gates.iter().map(Clone::clone)),
             inputs,
             outputs,
-        );
+        )
+        .expect("to have non-zero modulus");
 
         let noise_budget = ENC_NOISE + MUL_COST;
-        let mut mock_fhe = default_mock_fhe_backend(noise_budget);
+        let mut mock_fhe = default_mock_fhe_backend::<u64>(noise_budget);
         let results = mock_fhe
             .eval_outputs(&circuit, &[1, 1])
             .expect("should have evaluated");
@@ -362,17 +378,17 @@ mod test {
 
         let expected_elements = thin_vec![
             MockFHEElement {
-                value: 0,
+                value: 0u64,
                 depth: 0,
                 noise: single_add_noise + ADD_COST,
             },
             MockFHEElement {
-                value: 0,
+                value: 0u64,
                 depth: 0,
                 noise: single_add_noise + 2 * ADD_COST,
             },
             MockFHEElement {
-                value: 2,
+                value: 2u64,
                 depth: 0,
                 noise: single_add_noise + 2 * ADD_COST,
             },
@@ -393,17 +409,18 @@ mod test {
         ];
         let inputs = thin_vec![into_gate_idx(0), into_gate_idx(1)];
         let outputs = thin_vec![into_gate_idx(3), into_gate_idx(4), into_gate_idx(5)];
-        let q = 11;
+        let q = 11u64;
 
         let circuit = Circuit::with(
             q,
             Arena::from_iter(gates.iter().map(Clone::clone)),
             inputs,
             outputs,
-        );
+        )
+        .expect("to have non-zero modulus");
 
         let noise_budget = 1689; // noise at the end reaches 1686
-        let mut mock_fhe = default_mock_fhe_backend(noise_budget);
+        let mut mock_fhe = default_mock_fhe_backend::<u64>(noise_budget);
         let results = mock_fhe
             .eval_outputs(&circuit, &[1, 1])
             .expect("should have evaluated");
@@ -417,17 +434,17 @@ mod test {
 
         let expected_elements = thin_vec![
             MockFHEElement {
-                value: 1,
+                value: 1u64,
                 depth: 2,
                 noise: double_mul_noise,
             },
             MockFHEElement {
-                value: 1,
+                value: 1u64,
                 depth: 3,
                 noise: triple_mul_noise,
             },
             MockFHEElement {
-                value: 1,
+                value: 1u64,
                 depth: 3,
                 noise: single_and_double_noise,
             },

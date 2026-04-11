@@ -1,6 +1,7 @@
 use common::{idx_to_usize as c_idx_to_usize, usize_to_idx as c_usize_to_idx};
 use fxhash::FxHashSet;
 use ir::{
+    Supported,
     circuit::Circuit,
     gate::{Gate, GateIdx},
 };
@@ -16,11 +17,11 @@ pub mod liveness;
 pub mod reassociate;
 pub mod rebalance;
 
-pub(crate) fn idx_to_usize(gate_idx: GateIdx) -> usize {
-    c_idx_to_usize::<Gate>(gate_idx)
+pub(crate) fn idx_to_usize<T: Supported>(gate_idx: GateIdx<T>) -> usize {
+    c_idx_to_usize::<Gate<T>>(gate_idx)
 }
-pub(crate) fn usize_to_idx(i: usize) -> GateIdx {
-    c_usize_to_idx::<Gate>(i)
+pub(crate) fn usize_to_idx<T: Supported>(i: usize) -> GateIdx<T> {
+    c_usize_to_idx::<Gate<T>>(i)
 }
 
 pub(crate) fn is_op_associative_and_commutative(bin_op_of_i: BinOp) -> bool {
@@ -28,19 +29,19 @@ pub(crate) fn is_op_associative_and_commutative(bin_op_of_i: BinOp) -> bool {
 }
 
 #[derive(Debug)]
-pub enum PropagationError {
-    ReceivedInput(Gate),
-    ReceivedConst(Gate),
-    ReceivedNonUser(Gate),
+pub enum PropagationError<T: Supported> {
+    ReceivedInput(Gate<T>),
+    ReceivedConst(Gate<T>),
+    ReceivedNonUser(Gate<T>),
 }
 
-pub(crate) fn propagate_new_index_to_using_gates(
-    gate_idx: GateIdx,
-    new_gate_idx: GateIdx,
-    associated_gates: &mut Arena<Gate>,
-    usages: &FxHashSet<GateIdx>,
+pub(crate) fn propagate_new_index_to_using_gates<T: Supported>(
+    gate_idx: GateIdx<T>,
+    new_gate_idx: GateIdx<T>,
+    associated_gates: &mut Arena<Gate<T>>,
+    usages: &FxHashSet<GateIdx<T>>,
     is_an_output: bool,
-) -> Result<(), PropagationError> {
+) -> Result<(), PropagationError<T>> {
     for user in usages {
         // Outputs are self-used to prevent them being killed.
         if is_an_output && *user == gate_idx {
@@ -68,14 +69,14 @@ pub(crate) fn propagate_new_index_to_using_gates(
     Ok(())
 }
 
-pub(crate) fn transfer_gate_to_final_arena(
-    gate_idx: GateIdx,
-    old_gates: &Arena<Gate>,
-    new_gates: &mut Arena<Gate>,
-    inputs: &mut ThinVec<GateIdx>,
-    outputs: &mut ThinVec<GateIdx>,
-    old_outputs: &mut FxHashSet<&GateIdx>,
-) -> Option<(GateIdx, bool)> {
+pub(crate) fn transfer_gate_to_final_arena<T: Supported>(
+    gate_idx: GateIdx<T>,
+    old_gates: &Arena<Gate<T>>,
+    new_gates: &mut Arena<Gate<T>>,
+    inputs: &mut ThinVec<GateIdx<T>>,
+    outputs: &mut ThinVec<GateIdx<T>>,
+    old_outputs: &mut FxHashSet<&GateIdx<T>>,
+) -> Option<(GateIdx<T>, bool)> {
     let gate = old_gates[gate_idx];
 
     let new_gate_idx = new_gates.alloc(gate);
@@ -95,11 +96,11 @@ pub(crate) fn transfer_gate_to_final_arena(
     Some((new_gate_idx, is_an_output))
 }
 
-pub(crate) fn new_circuit_from(
-    circuit: &Circuit,
-    mut passed_gates: Arena<Gate>,
-    usages: &[FxHashSet<GateIdx>],
-) -> Result<Circuit, PropagationError> {
+pub(crate) fn new_circuit_from<T: Supported>(
+    circuit: &Circuit<T>,
+    mut passed_gates: Arena<Gate<T>>,
+    usages: &[FxHashSet<GateIdx<T>>],
+) -> Result<Circuit<T>, PropagationError<T>> {
     // input indices may have changed
     let mut inputs = ThinVec::with_capacity(circuit.inputs().len());
     // We have usages list at hand, we traverse and copy mutated arena by correcting indices on
@@ -135,9 +136,10 @@ pub(crate) fn new_circuit_from(
         }
     }
     Ok(Circuit::with(
-        circuit.plain_text_modulus,
+        circuit.get_plain_text_modulus(),
         alive_gates,
         inputs,
         outputs,
-    ))
+    )
+    .expect("to have a non-zero modulus from cloned circuit"))
 }

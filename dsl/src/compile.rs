@@ -1,11 +1,10 @@
 use enum_iterator::all;
 use ir::{
-    SupportedType,
     circuit::Circuit,
     gate::{Gate, GateIdx},
 };
 
-use common::usize_to_idx;
+use common::{Supported, usize_to_idx};
 
 use fxhash::{FxBuildHasher, FxHashMap};
 use la_arena::Arena;
@@ -19,38 +18,38 @@ use crate::{
 };
 
 #[derive(Clone, Debug)]
-pub struct CompilationError {
-    pub unused_inputs: ThinVec<Expr>,
-    pub unused_constants: ThinVec<Expr>,
-    pub unused_operations: ThinVec<Expr>,
+pub struct CompilationError<T: Supported> {
+    pub unused_inputs: ThinVec<Expr<T>>,
+    pub unused_constants: ThinVec<Expr<T>>,
+    pub unused_operations: ThinVec<Expr<T>>,
 }
 
-pub type CompilationResult = Result<Circuit, CompilationError>;
+pub type CompilationResult<T> = Result<Circuit<T>, CompilationError<T>>;
 
-impl ContextHandle {
-    pub fn compile(&self, output: ExprHandle) -> CompilationResult {
+impl<T: Supported> ContextHandle<T> {
+    pub fn compile(&self, output: ExprHandle<T>) -> CompilationResult<T> {
         let circuit_builder = CircuitCompiler::with(self.clone());
         circuit_builder.build_from(&[output])
     }
-    pub fn compile_many(&self, outputs: &[ExprHandle]) -> CompilationResult {
+    pub fn compile_many(&self, outputs: &[ExprHandle<T>]) -> CompilationResult<T> {
         let circuit_builder = CircuitCompiler::with(self.clone());
         circuit_builder.build_from(outputs)
     }
 }
 
 #[derive(Clone, Debug)]
-struct CircuitCompiler {
-    plain_text_modulus: SupportedType,
-    context_handle: ContextHandle,
-    pub gates: Arena<Gate>,
-    pub inputs: ThinVec<GateIdx>,
-    pub outputs: ThinVec<GateIdx>,
-    expr_idx_to_gate_idx: FxHashMap<ExprIdx, GateIdx>,
+struct CircuitCompiler<T: Supported> {
+    plain_text_modulus: T,
+    context_handle: ContextHandle<T>,
+    pub gates: Arena<Gate<T>>,
+    pub inputs: ThinVec<GateIdx<T>>,
+    pub outputs: ThinVec<GateIdx<T>>,
+    expr_idx_to_gate_idx: FxHashMap<ExprIdx<T>, GateIdx<T>>,
 }
 
-impl CircuitCompiler {
+impl<T: Supported> CircuitCompiler<T> {
     /// Gathers all of the unused Expressions and returns error on them if any.
-    fn apply_mode(&self) -> Result<(), CompilationError> {
+    fn apply_mode(&self) -> Result<(), CompilationError<T>> {
         let ctx = self.context_handle.0.borrow();
         if matches!(ctx.mode, CompilationMode::Loose) {
             return Ok(());
@@ -108,8 +107,8 @@ impl CircuitCompiler {
             unused_operations,
         })
     }
-    pub fn with(context_handle: ContextHandle) -> Self {
-        let q = context_handle.0.borrow().plain_text_modulus;
+    pub fn with(context_handle: ContextHandle<T>) -> Self {
+        let q = context_handle.0.borrow().get_plain_text_modulus();
         let expr_idx_to_gate_idx = FxHashMap::with_hasher(FxBuildHasher::default());
         Self {
             plain_text_modulus: q,
@@ -120,28 +119,28 @@ impl CircuitCompiler {
             expr_idx_to_gate_idx,
         }
     }
-    fn put_in_gates(&mut self, gate: Gate) -> GateIdx {
+    fn put_in_gates(&mut self, gate: Gate<T>) -> GateIdx<T> {
         self.gates.alloc(gate)
     }
-    fn mark_as_input(&mut self, gate_index: GateIdx) {
+    fn mark_as_input(&mut self, gate_index: GateIdx<T>) {
         self.inputs.push(gate_index);
     }
-    fn pair(&mut self, expr_index: ExprIdx, gate_index: GateIdx) {
+    fn pair(&mut self, expr_index: ExprIdx<T>, gate_index: GateIdx<T>) {
         self.expr_idx_to_gate_idx.insert(expr_index, gate_index);
     }
-    fn is_lowered(&self, expr_index: &ExprIdx) -> bool {
+    fn is_lowered(&self, expr_index: &ExprIdx<T>) -> bool {
         self.expr_idx_to_gate_idx.contains_key(expr_index)
     }
-    fn get_lowered(&self, expr_index: &ExprIdx) -> Option<&GateIdx> {
+    fn get_lowered(&self, expr_index: &ExprIdx<T>) -> Option<&GateIdx<T>> {
         self.expr_idx_to_gate_idx.get(expr_index)
     }
 
-    fn build_from(mut self, outputs: &[ExprHandle]) -> CompilationResult {
+    fn build_from(mut self, outputs: &[ExprHandle<T>]) -> CompilationResult<T> {
         let mut roots = outputs.iter();
         let mut output_gate_indices = ThinVec::new();
         let mut dfs_stack = ThinVec::new();
 
-        let into_expr_idx = |h: &ExprHandle| h.idx;
+        let into_expr_idx = |h: &ExprHandle<T>| h.idx;
 
         let mut current_node = roots.next().map(into_expr_idx);
         output_gate_indices.push(current_node.unwrap());
@@ -244,14 +243,13 @@ impl CircuitCompiler {
             self.outputs.push(*current_output_gate_idx);
         }
 
-        dbg!(&self);
-
         Ok(Circuit::with(
             self.plain_text_modulus,
             self.gates,
             self.inputs,
             self.outputs,
-        ))
+        )
+        .expect("compilation to have a non-zero modulus within"))
     }
 }
 
@@ -270,27 +268,27 @@ mod tests {
 
     use super::*;
 
-    fn test_ctx_handle() -> ContextHandle {
-        new_strict_context(7)
+    fn test_ctx_handle() -> ContextHandle<u64> {
+        new_strict_context(7u64).expect("modulus to be non-zero")
     }
 
-    fn test_loose_ctx_handle() -> ContextHandle {
-        new_loose_context(5)
+    fn test_loose_ctx_handle() -> ContextHandle<u64> {
+        new_loose_context(5u64).expect("modulus to be non-zero")
     }
 
-    fn test_folding_ctx_handle() -> ContextHandle {
-        new_folding_strict_context(11)
+    fn test_folding_ctx_handle() -> ContextHandle<u64> {
+        new_folding_strict_context(11u64).expect("modulus to be non-zero")
     }
 
     #[test]
     fn test_single_addition_with_same_constants_loose_also_folds() {
         let ctx_handle = test_loose_ctx_handle();
-        let value = 9;
+        let value = 9u64;
         let constant_1 = ctx_handle.constant(value);
         let constant_2 = ctx_handle.constant(value);
         let out = constant_1 + constant_2;
 
-        let expected = value * 2 % ctx_handle.0.borrow().plain_text_modulus;
+        let expected = value * 2 % ctx_handle.0.borrow().get_plain_text_modulus();
 
         // (Add, lhs_constant, rhs_constant) -> will fold to Const(lhs_constant + rhs_constant)
         let expected_length = 1;
@@ -301,14 +299,14 @@ mod tests {
         assert_eq!(0, circuit.inputs().len());
         assert_eq!(1, circuit.outputs().len());
 
-        let const_gate_idx = usize_to_idx(0);
+        let const_gate_idx = usize_to_idx::<Gate<u64>>(0);
         assert_eq!(Gate::Const(expected), circuit.gates()[const_gate_idx]);
     }
 
     #[test]
     fn test_single_addition_with_same_constants_strict_also_folds() {
         let ctx_handle = test_ctx_handle();
-        let value = 9;
+        let value = 9u64;
         let constant_1 = ctx_handle.constant(value);
         let constant_2 = ctx_handle.constant(value);
         let out = constant_1 + constant_2;
@@ -328,12 +326,12 @@ mod tests {
     #[test]
     fn test_single_addition_with_same_constants_folding_strict_folds_leaves_orphan_behind() {
         let ctx_handle = test_folding_ctx_handle();
-        let value = 9;
+        let value = 9u64;
         let constant_1 = ctx_handle.constant(value);
         let constant_2 = ctx_handle.constant(value);
         let out = constant_1 + constant_2;
 
-        let expected = value * 2 % ctx_handle.0.borrow().plain_text_modulus;
+        let expected = value * 2 % ctx_handle.0.borrow().get_plain_text_modulus();
 
         // (Add, lhs_constant, rhs_constant) -> will fold to Const(lhs_constant + rhs_constant)
         let expected_length = 1;
@@ -345,13 +343,13 @@ mod tests {
         assert_eq!(0, circuit.inputs().len());
         assert_eq!(1, circuit.outputs().len());
 
-        let const_gate_idx = usize_to_idx::<Gate>(0);
+        let const_gate_idx = usize_to_idx::<Gate<u64>>(0);
         assert_eq!(Gate::Const(expected), circuit.gates()[const_gate_idx]);
     }
     #[test]
     fn test_single_addition_with_constant_and_input_strict() {
         let ctx_handle = test_ctx_handle();
-        let value = 9;
+        let value = 9u64;
         let index = 0;
         let constant = ctx_handle.constant(value);
         let input = ctx_handle.input(index);
@@ -365,13 +363,13 @@ mod tests {
         assert_eq!(1, circuit.inputs().len());
         assert_eq!(1, circuit.outputs().len());
 
-        let const_gate_idx = usize_to_idx::<Gate>(0);
+        let const_gate_idx = usize_to_idx::<Gate<u64>>(0);
         assert_eq!(Gate::Const(value), circuit.gates()[const_gate_idx]);
 
-        let input_gate_idx = usize_to_idx::<Gate>(1);
+        let input_gate_idx = usize_to_idx::<Gate<u64>>(1);
         assert_eq!(Gate::Input(index), circuit.gates()[input_gate_idx]);
 
-        let add_gate_idx = usize_to_idx::<Gate>(2);
+        let add_gate_idx = usize_to_idx::<Gate<u64>>(2);
         assert_eq!(
             Gate::BinOp(BinOp::Add, const_gate_idx, input_gate_idx),
             circuit.gates()[add_gate_idx]
@@ -382,7 +380,7 @@ mod tests {
     fn test_same_double_addition_and_multiplication_strict() {
         let ctx_handle = test_ctx_handle();
         let index = 0;
-        let value = 9;
+        let value = 9u64;
         let input = ctx_handle.input(index);
         let constant = ctx_handle.constant(value);
         let addition = input + constant;
@@ -396,19 +394,19 @@ mod tests {
         assert_eq!(1, circuit.inputs().len());
         assert_eq!(1, circuit.outputs().len());
 
-        let input_gate_idx = usize_to_idx::<Gate>(0);
+        let input_gate_idx = usize_to_idx::<Gate<u64>>(0);
         assert_eq!(Gate::Input(index), circuit.gates()[input_gate_idx]);
 
-        let const_gate_idx = usize_to_idx::<Gate>(1);
+        let const_gate_idx = usize_to_idx::<Gate<u64>>(1);
         assert_eq!(Gate::Const(value), circuit.gates()[const_gate_idx]);
 
-        let add_gate_idx = usize_to_idx::<Gate>(2);
+        let add_gate_idx = usize_to_idx::<Gate<u64>>(2);
         assert_eq!(
             Gate::BinOp(BinOp::Add, input_gate_idx, const_gate_idx),
             circuit.gates()[add_gate_idx]
         );
 
-        let mul_gate_idx = usize_to_idx::<Gate>(3);
+        let mul_gate_idx = usize_to_idx::<Gate<u64>>(3);
         assert_eq!(
             Gate::BinOp(BinOp::Mul, add_gate_idx, add_gate_idx),
             circuit.gates()[mul_gate_idx]
@@ -421,7 +419,7 @@ mod tests {
         let total = 100;
         let mut constants = ThinVec::with_capacity(total);
         for value in 1..=total {
-            let constant = ctx_handle.constant(value as SupportedType);
+            let constant = ctx_handle.constant(value as u64);
             constants.push(constant);
         }
 
@@ -448,7 +446,7 @@ mod tests {
         assert_eq!(0, circuit.inputs().len());
         assert_eq!(1, circuit.outputs().len());
 
-        let const_gate_idx = usize_to_idx::<Gate>(0);
+        let const_gate_idx = usize_to_idx::<Gate<u64>>(0);
         assert_eq!(Gate::Const(0), circuit.gates()[const_gate_idx]);
     }
 
@@ -456,7 +454,7 @@ mod tests {
     fn test_different_double_addition_and_multiplication_strict() {
         let ctx_handle = test_ctx_handle();
 
-        let values = [1, 2, 3, 4];
+        let values = [1u64, 2, 3, 4];
         let input_1 = ctx_handle.input(values[0] as usize);
         let constant_1 = ctx_handle.constant(values[1]);
         let addition_1 = input_1 + constant_1;
@@ -475,7 +473,7 @@ mod tests {
         assert_eq!(1, circuit.outputs().len());
 
         for (val_ix, const_idx) in [0, 1, 3, 4].iter().enumerate() {
-            let gate_idx = usize_to_idx::<Gate>(*const_idx);
+            let gate_idx = usize_to_idx::<Gate<u64>>(*const_idx);
             let expected_expr = match val_ix % 2 {
                 // input
                 0 => Gate::Input(values[val_ix] as usize),
@@ -485,32 +483,32 @@ mod tests {
             assert_eq!(expected_expr, circuit.gates()[gate_idx]);
         }
 
-        let add_gate_idx = usize_to_idx::<Gate>(2);
-        let input_1_gate_idx = usize_to_idx::<Gate>(0);
-        let const_1_gate_idx = usize_to_idx::<Gate>(1);
+        let add_gate_idx = usize_to_idx::<Gate<u64>>(2);
+        let input_1_gate_idx = usize_to_idx::<Gate<u64>>(0);
+        let const_1_gate_idx = usize_to_idx::<Gate<u64>>(1);
 
         assert_eq!(
             Gate::BinOp(BinOp::Add, input_1_gate_idx, const_1_gate_idx),
             circuit.gates()[add_gate_idx]
         );
 
-        let add_gate_idx_2 = usize_to_idx::<Gate>(5);
-        let input_2_gate_idx = usize_to_idx::<Gate>(3);
-        let const_2_gate_idx = usize_to_idx::<Gate>(4);
+        let add_gate_idx_2 = usize_to_idx::<Gate<u64>>(5);
+        let input_2_gate_idx = usize_to_idx::<Gate<u64>>(3);
+        let const_2_gate_idx = usize_to_idx::<Gate<u64>>(4);
 
         assert_eq!(
             Gate::BinOp(BinOp::Add, input_2_gate_idx, const_2_gate_idx),
             circuit.gates()[add_gate_idx_2]
         );
 
-        let mul_gate_idx = usize_to_idx::<Gate>(6);
+        let mul_gate_idx = usize_to_idx::<Gate<u64>>(6);
         assert_eq!(
             Gate::BinOp(BinOp::Mul, add_gate_idx, add_gate_idx_2),
             circuit.gates()[mul_gate_idx]
         );
     }
 
-    fn moded_ctx(mode: CompilationMode) -> ContextHandle {
+    fn moded_ctx(mode: CompilationMode) -> ContextHandle<u64> {
         if matches!(mode, CompilationMode::StrictAll) {
             test_ctx_handle()
         } else {
@@ -552,8 +550,8 @@ mod tests {
     const NONE: &[usize] = &[];
 
     #[allow(unused)]
-    fn unused_input(ctx_handle: ContextHandle) -> ThinVec<ExprHandle> {
-        let unused_input = ctx_handle.input(0);
+    fn unused_input(ctx_handle: ContextHandle<u64>) -> ThinVec<ExprHandle<u64>> {
+        let _unused_input = ctx_handle.input(0);
         let input = ctx_handle.input(1);
 
         let out = &input + &input;
@@ -561,35 +559,35 @@ mod tests {
     }
 
     #[allow(unused)]
-    fn unused_constant(ctx_handle: ContextHandle) -> ThinVec<ExprHandle> {
-        let unused_constant = ctx_handle.constant(0);
+    fn unused_constant(ctx_handle: ContextHandle<u64>) -> ThinVec<ExprHandle<u64>> {
+        let _unused_constant = ctx_handle.constant(0u64);
         let input = ctx_handle.input(0);
-        let constant = ctx_handle.constant(1);
+        let constant = ctx_handle.constant(1u64);
 
         let out = &input + &constant;
         thin_vec![out]
     }
 
     #[allow(unused)]
-    fn unused_operation(ctx_handle: ContextHandle) -> ThinVec<ExprHandle> {
+    fn unused_operation(ctx_handle: ContextHandle<u64>) -> ThinVec<ExprHandle<u64>> {
         let input = ctx_handle.input(1);
-        let constant = ctx_handle.constant(1);
+        let constant = ctx_handle.constant(1u64);
 
-        let unused_add = &input + &constant;
+        let _unused_add = &input + &constant;
 
         let out = &input * &constant;
         thin_vec![out]
     }
 
     #[allow(unused)]
-    fn unused_all(ctx_handle: ContextHandle) -> ThinVec<ExprHandle> {
-        let unused_input = ctx_handle.input(0);
+    fn unused_all(ctx_handle: ContextHandle<u64>) -> ThinVec<ExprHandle<u64>> {
+        let _unused_input = ctx_handle.input(0);
         let input = ctx_handle.input(1);
 
-        let unused_constant = ctx_handle.constant(0);
-        let constant = ctx_handle.constant(1);
+        let _unused_constant = ctx_handle.constant(0u64);
+        let constant = ctx_handle.constant(1u64);
 
-        let unused_add = &input + &constant;
+        let _unused_add = &input + &constant;
 
         let out = &input * &constant;
         thin_vec![out]

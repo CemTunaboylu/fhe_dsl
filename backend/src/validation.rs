@@ -1,10 +1,10 @@
-use ir::{SupportedType, circuit::Circuit};
+use ir::{Supported, circuit::Circuit};
 
 use crate::{BackendResult, error::BackendError};
 
-pub(crate) fn validate_same_length(
-    circuit: &Circuit,
-    inputs: &[SupportedType],
+pub(crate) fn validate_same_length<T: Supported>(
+    circuit: &Circuit<T>,
+    inputs: &[T],
 ) -> BackendResult<()> {
     if circuit.inputs().len() != inputs.len() {
         let exp_len = circuit.inputs().len();
