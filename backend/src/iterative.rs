@@ -22,7 +22,9 @@ where
     B: Backend<S, Elem = E>,
 {
     validate_same_length(circuit, with)?;
-    backend.set_plain_text_modulus(circuit.plain_text_modulus);
+    backend
+        .set_plain_text_modulus(circuit.get_plain_text_modulus())
+        .expect("circuit to have non-zero modulus");
 
     let mut roots = circuit.outputs().iter();
     let mut dfs_stack = ThinVec::new();

@@ -5,7 +5,7 @@ use crate::{
     iterative::eval_with_iterative_traversal,
     noise::{MockNoise, Noise},
 };
-use common::{default_non_zero, idx_to_usize};
+use common::{NonZeroModulusResult, default_non_zero, idx_to_usize, validate_non_zero};
 use ir::{Supported, circuit::Circuit, gate::Gate};
 use op::BinOp;
 use thin_vec::{ThinVec, thin_vec};
@@ -79,7 +79,7 @@ impl<T: Supported, N: Noise> Backend<T> for MockFHEBackend<T, N> {
     // pseudo-encrypts them with elements having a noise.
     fn eval(&mut self, circuit: &Circuit<T>, with: &[T]) -> BackendResult<ThinVec<Self::Elem>> {
         validate_same_length(circuit, with)?;
-        self.plain_text_modulus = circuit.plain_text_modulus;
+        self.plain_text_modulus = circuit.get_plain_text_modulus();
         // NOTE: we restart noise because certain outputs can be below the budget but if we
         // evaluate an output which overwhelms the noise budget, we won't be able to evaluate
         // anything after that. Also the max and index values will be wrong no matter the case,
@@ -126,8 +126,10 @@ impl<T: Supported, N: Noise> Backend<T> for MockFHEBackend<T, N> {
         self.noise = Noise::new(self.noise.get_noise_budget());
         eval_with_iterative_traversal::<Self::Elem, N, T, Self>(circuit, self, with)
     }
-    fn set_plain_text_modulus(&mut self, q: T) {
+    fn set_plain_text_modulus(&mut self, q: T) -> NonZeroModulusResult<()> {
+        validate_non_zero(q)?;
         self.plain_text_modulus = q;
+        Ok(())
     }
     fn get_noise_mul(&mut self) -> &mut impl Noise {
         &mut self.noise
@@ -181,7 +183,8 @@ mod test {
             Arena::from_iter(gates.iter().map(Clone::clone)),
             inputs,
             outputs,
-        );
+        )
+        .expect("to have non-zero modulus");
 
         let noise_budget = 1689; // noise becomes 1686 at the end
         let mut mock_fhe = default_mock_fhe_backend::<u64>(noise_budget);
@@ -256,7 +259,8 @@ mod test {
             Arena::from_iter(gates.iter().map(Clone::clone)),
             inputs,
             outputs,
-        );
+        )
+        .expect("to have non-zero modulus");
 
         let noise_budget = ENC_NOISE + MUL_COST;
         let mut mock_fhe = default_mock_fhe_backend::<u64>(noise_budget);
@@ -293,7 +297,8 @@ mod test {
             Arena::from_iter(gates.iter().map(Clone::clone)),
             inputs,
             outputs,
-        );
+        )
+        .expect("to have non-zero modulus");
 
         let noise_budget = ENC_NOISE + MUL_COST;
         let mut mock_fhe = default_mock_fhe_backend::<u64>(noise_budget);
@@ -359,7 +364,8 @@ mod test {
             Arena::from_iter(gates.iter().map(Clone::clone)),
             inputs,
             outputs,
-        );
+        )
+        .expect("to have non-zero modulus");
 
         let noise_budget = ENC_NOISE + MUL_COST;
         let mut mock_fhe = default_mock_fhe_backend::<u64>(noise_budget);
@@ -410,7 +416,8 @@ mod test {
             Arena::from_iter(gates.iter().map(Clone::clone)),
             inputs,
             outputs,
-        );
+        )
+        .expect("to have non-zero modulus");
 
         let noise_budget = 1689; // noise at the end reaches 1686
         let mut mock_fhe = default_mock_fhe_backend::<u64>(noise_budget);

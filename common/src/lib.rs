@@ -34,6 +34,14 @@ pub fn default_non_zero<T: Supported>() -> T {
     T::default().wrapping_add(&T::one())
 }
 
+#[derive(Debug)]
+pub struct CannotBeZeroError;
+pub type NonZeroModulusResult<T> = Result<T, CannotBeZeroError>;
+
+pub fn validate_non_zero<T: Supported>(t: T) -> NonZeroModulusResult<()> {
+    (t != T::zero()).then_some(()).ok_or(CannotBeZeroError {})
+}
+
 pub fn idx_to_u32<I>(some_idx: Idx<I>) -> u32 {
     some_idx.into_raw().into_u32()
 }

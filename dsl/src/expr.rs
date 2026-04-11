@@ -58,7 +58,7 @@ mod tests {
     use super::*;
 
     fn test_ctx_handle() -> ContextHandle<u64> {
-        new_loose_context(5u64)
+        new_loose_context(5u64).expect("to have non-zero modulus")
     }
 
     #[test]
@@ -121,9 +121,15 @@ mod tests {
         BorrowMut,
     }
 
-    fn perform_op_with_expectation<O>(op: BinOp, operand_1: O, operand_2: O) -> (ExprHandle<u64>, BinOp)
+    fn perform_op_with_expectation<O>(
+        op: BinOp,
+        operand_1: O,
+        operand_2: O,
+    ) -> (ExprHandle<u64>, BinOp)
     where
-        O: Add<Output = ExprHandle<u64>> + Sub<Output = ExprHandle<u64>> + Mul<Output = ExprHandle<u64>>,
+        O: Add<Output = ExprHandle<u64>>
+            + Sub<Output = ExprHandle<u64>>
+            + Mul<Output = ExprHandle<u64>>,
     {
         match op {
             BinOp::Add => {

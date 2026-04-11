@@ -45,7 +45,7 @@ impl<T: Supported> RebalancePass<T> {
     fn new(circuit: &Circuit<T>, roots: FxHashSet<GateIdx<T>>) -> Self {
         let gates_len = circuit.gates().len();
         let index = gates_len;
-        let q = circuit.plain_text_modulus;
+        let q = circuit.get_plain_text_modulus();
         let ranks = thin_vec![-1; gates_len];
         let rebalanced = Arena::with_capacity(gates_len);
         let root_old_to_new_gate_idx_map = FxHashMap::with_hasher(FxBuildHasher::default());
@@ -313,7 +313,12 @@ mod test {
             let idx_outputs : ThinVec<GateIdx<u64>> = outputs.iter().map(|i: &usize| usize_to_idx(*i)).collect();
             let q = 11u64;
 
-            let circuit = Circuit::with(q, Arena::from_iter(gates.iter().cloned()), idx_inputs, idx_outputs);
+            let circuit = Circuit::with(
+                q,
+                Arena::from_iter(gates.iter().cloned()),
+                idx_inputs,
+                idx_outputs
+            ).expect("to have non-zero modulus");
 
             let new_circuit = rebalance(&circuit).expect("rebalance to finalise without errors");
             assert_eq!(

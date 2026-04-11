@@ -136,9 +136,10 @@ pub(crate) fn new_circuit_from<T: Supported>(
         }
     }
     Ok(Circuit::with(
-        circuit.plain_text_modulus,
+        circuit.get_plain_text_modulus(),
         alive_gates,
         inputs,
         outputs,
-    ))
+    )
+    .expect("to have a non-zero modulus from cloned circuit"))
 }

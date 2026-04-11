@@ -17,15 +17,20 @@
 //! let y = x+c;
 //! a+c+b -> a+b+c -> x+c
 //! More on the algorithm can be found on the corresponding wiki page.
-use ir::{
-    Supported, circuit::Circuit, gate::{Gate, GateIdx}
-};
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
+use ir::{
+    Supported,
+    circuit::Circuit,
+    gate::{Gate, GateIdx},
+};
 use la_arena::Arena;
 use op::BinOp;
 use thin_vec::{ThinVec, thin_vec};
 
-use crate::{PropagationError, folding, is_op_associative_and_commutative, liveness::LivenessWRTUsage, new_circuit_from, usize_to_idx};
+use crate::{
+    PropagationError, folding, is_op_associative_and_commutative, liveness::LivenessWRTUsage,
+    new_circuit_from, usize_to_idx,
+};
 
 #[derive(Debug)]
 pub enum ReassociationError<T: Supported> {
@@ -49,7 +54,7 @@ struct ReassociationPass<T: Supported> {
 impl<T: Supported> ReassociationPass<T> {
     #[inline]
     fn new(circuit: &Circuit<T>) -> Self {
-        let q = circuit.plain_text_modulus;
+        let q = circuit.get_plain_text_modulus();
         let gates = circuit.gates().clone();
         let dead: FxHashSet<GateIdx<T>> = FxHashSet::with_hasher(FxBuildHasher::default());
         // Learn topology of the circuit
@@ -84,19 +89,35 @@ impl<T: Supported> ReassociationPass<T> {
         }
     }
     #[inline]
-    fn accept_reassociation(&mut self, reassociation: Reassociation<T>, rewritten_root_op_gate: Gate<T>, rewritten_root_op_gate_idx: GateIdx<T>) {
+    fn accept_reassociation(
+        &mut self,
+        reassociation: Reassociation<T>,
+        rewritten_root_op_gate: Gate<T>,
+        rewritten_root_op_gate_idx: GateIdx<T>,
+    ) {
         // The old root gate is changed thus remove it
         self.seen.remove(&rewritten_root_op_gate);
 
         let (new_root, to_severe_from_root, to_connect_root) = match reassociation {
             // Swapped one of it's child with an already existing (dominator) gate
-            Reassociation::Ternary { new_root, usage_update } => {
-                let UsageUpdate { to_severe_from_root, to_connect_root } = usage_update;
+            Reassociation::Ternary {
+                new_root,
+                usage_update,
+            } => {
+                let UsageUpdate {
+                    to_severe_from_root,
+                    to_connect_root,
+                } = usage_update;
                 (new_root, to_severe_from_root, to_connect_root)
-            },
+            }
             // We folded 2 constants that are neighbours, thus we have to housekeep: replace with
             // the discarded gate, decrement it's usages and propagate them.
-            Reassociation::Folding { new_root, folded_gate, replacing_index, usage_update } => {
+            Reassociation::Folding {
+                new_root,
+                folded_gate,
+                replacing_index,
+                usage_update,
+            } => {
                 let discarded = self.gates[replacing_index];
                 self.seen.remove(&discarded);
                 // Remove usage of the discarded by rewritten root, and propagate this to it's
@@ -110,9 +131,12 @@ impl<T: Supported> ReassociationPass<T> {
                 self.propagated_increment(replacing_index, rewritten_root_op_gate_idx);
                 self.constant_gates.insert(replacing_index);
 
-                let UsageUpdate { to_severe_from_root, to_connect_root } = usage_update;
+                let UsageUpdate {
+                    to_severe_from_root,
+                    to_connect_root,
+                } = usage_update;
                 (new_root, to_severe_from_root, to_connect_root)
-            },
+            }
         };
 
         self.gates[rewritten_root_op_gate_idx] = new_root;
@@ -127,7 +151,8 @@ impl<T: Supported> ReassociationPass<T> {
         // cutting ties with the new root, one is the old gate that is rewritten, other is the
         // input/constant that is moved 'in' to the new reassociated child.
         for incr in to_connect_root {
-            self.liveness_wrt_usage.increment(incr, rewritten_root_op_gate_idx);
+            self.liveness_wrt_usage
+                .increment(incr, rewritten_root_op_gate_idx);
         }
     }
     #[inline]
@@ -155,16 +180,18 @@ impl<T: Supported> ReassociationPass<T> {
     fn kill_unused_gates(&mut self) -> Result<(), ReassociationError<T>> {
         // When tombstone is a Gate, it's operands if necessary, should have their usages change.
         for to_kill_idx in self.liveness_wrt_usage.get_killing_list() {
-            if self.dead.contains(to_kill_idx) { continue; }
+            if self.dead.contains(to_kill_idx) {
+                continue;
+            }
             self.dead.insert(*to_kill_idx);
 
             let to_kill = self.gates[*to_kill_idx];
 
             match to_kill {
-                Gate::Input(_) => {},
+                Gate::Input(_) => {}
                 Gate::Const(_) => {
                     self.constant_gates.remove(to_kill_idx);
-                },
+                }
                 // Propagate Tombstones if operands are only used by this.
                 Gate::BinOp(_, lhs, rhs) => {
                     for operand in [lhs, rhs] {
@@ -173,9 +200,11 @@ impl<T: Supported> ReassociationPass<T> {
                             self.dead.insert(operand);
                         }
                     }
-                },
+                }
                 // A tombstone never will be in the killing list.
-                Gate::Tombstone => return Err(ReassociationError::KillReceivedTombstone(*to_kill_idx)),
+                Gate::Tombstone => {
+                    return Err(ReassociationError::KillReceivedTombstone(*to_kill_idx));
+                }
             }
             self.seen.remove(&to_kill);
             self.gates[*to_kill_idx] = Gate::Tombstone;
@@ -196,7 +225,8 @@ fn learn_topology_of<T: Supported>(
 ) {
     let gates = circuit.gates();
     let mut operation_gates = ThinVec::<GateIdx<T>>::new();
-    let mut constant_gates: FxHashSet<GateIdx<T>> = FxHashSet::with_hasher(FxBuildHasher::default());
+    let mut constant_gates: FxHashSet<GateIdx<T>> =
+        FxHashSet::with_hasher(FxBuildHasher::default());
 
     let len_gates = gates.len();
 
@@ -273,7 +303,12 @@ pub fn reuse_driven_reassociate<T: Supported>(circuit: &Circuit<T>) -> Reassocia
         reassociation_pass.prepare_for_next_round()?;
     }
 
-    new_circuit_from(circuit, reassociation_pass.gates, reassociation_pass.liveness_wrt_usage.get_usages()).map_err(ReassociationError::PropagationFailure)
+    new_circuit_from(
+        circuit,
+        reassociation_pass.gates,
+        reassociation_pass.liveness_wrt_usage.get_usages(),
+    )
+    .map_err(ReassociationError::PropagationFailure)
 }
 
 #[derive(Debug)]
@@ -341,18 +376,24 @@ fn extract_reassociation_candidates<T: Supported>(
     Some(reassociation_candidates)
 }
 
-
 #[derive(Debug)]
 struct UsageUpdate<T: Supported> {
     to_severe_from_root: ThinVec<GateIdx<T>>,
     to_connect_root: ThinVec<GateIdx<T>>,
 }
 
-
 #[derive(Debug)]
 enum Reassociation<T: Supported> {
-    Ternary { new_root: Gate<T>, usage_update: UsageUpdate<T> },
-    Folding { new_root: Gate<T>, folded_gate: Gate<T>, replacing_index: GateIdx<T>, usage_update: UsageUpdate<T> },
+    Ternary {
+        new_root: Gate<T>,
+        usage_update: UsageUpdate<T>,
+    },
+    Folding {
+        new_root: Gate<T>,
+        folded_gate: Gate<T>,
+        replacing_index: GateIdx<T>,
+        usage_update: UsageUpdate<T>,
+    },
 }
 
 #[inline]
@@ -385,8 +426,16 @@ fn try_reassociate_candidates<T: Supported>(
 
     for to_try in [(left_right, b), (with_mid, other)] {
         {
-            let reassociation = form_a_gate(bin_op_of_i, instruction_to_rewrite, to_try, is_lhs, reassociation_pass);
-            if reassociation.is_some() { return reassociation; }
+            let reassociation = form_a_gate(
+                bin_op_of_i,
+                instruction_to_rewrite,
+                to_try,
+                is_lhs,
+                reassociation_pass,
+            );
+            if reassociation.is_some() {
+                return reassociation;
+            }
         }
     }
     None
@@ -406,19 +455,27 @@ fn form_a_gate<T: Supported>(
         && !reassociation_pass.dead.contains(new_reassoc_gate_idx)
     {
         let new_root = Gate::BinOp(bin_op_of_i, *new_reassoc_gate_idx, other);
-        let moved_in_child = if is_lhs {
-            new_ops.1
-        } else {
-            new_ops.0
+        let moved_in_child = if is_lhs { new_ops.1 } else { new_ops.0 };
+        let usage_update = UsageUpdate {
+            to_severe_from_root: thin_vec![instruction_to_rewrite, moved_in_child],
+            to_connect_root: thin_vec![*new_reassoc_gate_idx, other],
         };
-        let usage_update = UsageUpdate { to_severe_from_root: thin_vec![instruction_to_rewrite, moved_in_child], to_connect_root: thin_vec![*new_reassoc_gate_idx, other] };
-        return Some(Reassociation::Ternary { new_root, usage_update });
+        return Some(Reassociation::Ternary {
+            new_root,
+            usage_update,
+        });
     }
     // If the new operation is constant op constant, to enable folding we reassociate.
     // We create a new Gate::Const with folding::fold
-    else if reassociation_pass.constant_gates.contains(&new_ops.0) && reassociation_pass.constant_gates.contains(&new_ops.1) {
+    else if reassociation_pass.constant_gates.contains(&new_ops.0)
+        && reassociation_pass.constant_gates.contains(&new_ops.1)
+    {
         // We know that instruction to rewrite is only used by us, so we will replace it with our folded gate directly.
-        let folded_gate = folding::fold(Gate::BinOp(bin_op_of_i, new_ops.0, new_ops.1), &reassociation_pass.gates, reassociation_pass.plain_text_modulus);
+        let folded_gate = folding::fold(
+            Gate::BinOp(bin_op_of_i, new_ops.0, new_ops.1),
+            &reassociation_pass.gates,
+            reassociation_pass.plain_text_modulus,
+        );
 
         // We have to severe the usage connections of the constants with their parent Ops.
         // In case association is lhs and left/right, left-most constant and the `other` is attached to gate that is being
@@ -426,11 +483,7 @@ fn form_a_gate<T: Supported>(
         // Since the ops come in order, we can deduce which nodes are connected to which.
         // Only severe const attached to root, dead one will be propagated during replacement, other non-const must
         // be connected to the new root now.
-        let to_severe_from_root = if is_lhs {
-            new_ops.1
-        } else {
-            new_ops.0
-        };
+        let to_severe_from_root = if is_lhs { new_ops.1 } else { new_ops.0 };
 
         let usage_update = UsageUpdate {
             to_severe_from_root: thin_vec![to_severe_from_root],
@@ -440,7 +493,12 @@ fn form_a_gate<T: Supported>(
         // The folded gate will be put in place of the gate at instruction_to_rewrite.
         let new_root = Gate::BinOp(bin_op_of_i, instruction_to_rewrite, other);
         let replacing_index = instruction_to_rewrite;
-        return Some(Reassociation::Folding { new_root, folded_gate, replacing_index, usage_update });
+        return Some(Reassociation::Folding {
+            new_root,
+            folded_gate,
+            replacing_index,
+            usage_update,
+        });
     }
     None
 }
@@ -465,11 +523,13 @@ mod test {
             Gate::BinOp(BinOp::Add, usize_to_idx(0), usize_to_idx(2)), // a + c
             Gate::BinOp(BinOp::Add, usize_to_idx(4), usize_to_idx(1)), // (a+c)+b
         ];
-        let inputs: ThinVec<GateIdx<u64>> = thin_vec![usize_to_idx(0), usize_to_idx(1), usize_to_idx(2)];
+        let inputs: ThinVec<GateIdx<u64>> =
+            thin_vec![usize_to_idx(0), usize_to_idx(1), usize_to_idx(2)];
         let outputs: ThinVec<GateIdx<u64>> = thin_vec![usize_to_idx(3), usize_to_idx(5)];
         let q = 11u64;
 
-        let circuit = Circuit::with(q, Arena::from_iter(gates.iter().cloned()), inputs, outputs);
+        let circuit = Circuit::with(q, Arena::from_iter(gates.iter().cloned()), inputs, outputs)
+            .expect("to have non-zero modulus");
 
         let mut reassociation_pass = ReassociationPass::new(&circuit);
         let reassociation_candidate = extract_reassociation_candidates(
@@ -492,16 +552,28 @@ mod test {
 
         let new_gate: Gate<u64> = Gate::BinOp(BinOp::Add, usize_to_idx(3), usize_to_idx(2));
 
-        let reassociation =
-            try_reassociate_candidates(reassociation_candidate, BinOp::Add, &mut reassociation_pass)
-                .expect("to reassociate");
+        let reassociation = try_reassociate_candidates(
+            reassociation_candidate,
+            BinOp::Add,
+            &mut reassociation_pass,
+        )
+        .expect("to reassociate");
 
         match reassociation {
-            Reassociation::Ternary { new_root, usage_update } => {
+            Reassociation::Ternary {
+                new_root,
+                usage_update,
+            } => {
                 assert_eq!(new_gate, new_root);
-                assert_eq!(&[usize_to_idx(4), usize_to_idx(1)], usage_update.to_severe_from_root.as_slice());
-                assert_eq!(&[usize_to_idx(3), usize_to_idx(2)], usage_update.to_connect_root.as_slice());
-            },
+                assert_eq!(
+                    &[usize_to_idx(4), usize_to_idx(1)],
+                    usage_update.to_severe_from_root.as_slice()
+                );
+                assert_eq!(
+                    &[usize_to_idx(3), usize_to_idx(2)],
+                    usage_update.to_connect_root.as_slice()
+                );
+            }
             _ => panic!(),
         }
     }
@@ -517,11 +589,13 @@ mod test {
             Gate::BinOp(BinOp::Add, usize_to_idx(1), usize_to_idx(4)), // b+(c+a)
         ];
 
-        let inputs: ThinVec<GateIdx<u64>> = thin_vec![usize_to_idx(0), usize_to_idx(1), usize_to_idx(2)];
+        let inputs: ThinVec<GateIdx<u64>> =
+            thin_vec![usize_to_idx(0), usize_to_idx(1), usize_to_idx(2)];
         let outputs: ThinVec<GateIdx<u64>> = thin_vec![usize_to_idx(3), usize_to_idx(5)];
         let q = 11u64;
 
-        let circuit = Circuit::with(q, Arena::from_iter(gates.iter().cloned()), inputs, outputs);
+        let circuit = Circuit::with(q, Arena::from_iter(gates.iter().cloned()), inputs, outputs)
+            .expect("to have non-zero modulus");
 
         let mut reassociation_pass = ReassociationPass::new(&circuit);
         let reassociation_candidate = extract_reassociation_candidates(
@@ -545,16 +619,28 @@ mod test {
 
         let new_gate: Gate<u64> = Gate::BinOp(BinOp::Add, usize_to_idx(3), usize_to_idx(0));
 
-        let reassociation =
-            try_reassociate_candidates(reassociation_candidate, BinOp::Add, &mut reassociation_pass)
-                .expect("to reassociate");
+        let reassociation = try_reassociate_candidates(
+            reassociation_candidate,
+            BinOp::Add,
+            &mut reassociation_pass,
+        )
+        .expect("to reassociate");
 
         match reassociation {
-            Reassociation::Ternary { new_root, usage_update } => {
+            Reassociation::Ternary {
+                new_root,
+                usage_update,
+            } => {
                 assert_eq!(new_gate, new_root);
-                assert_eq!(&[usize_to_idx(4), usize_to_idx(1)], usage_update.to_severe_from_root.as_slice());
-                assert_eq!(&[usize_to_idx(3), usize_to_idx(0)], usage_update.to_connect_root.as_slice());
-            },
+                assert_eq!(
+                    &[usize_to_idx(4), usize_to_idx(1)],
+                    usage_update.to_severe_from_root.as_slice()
+                );
+                assert_eq!(
+                    &[usize_to_idx(3), usize_to_idx(0)],
+                    usage_update.to_connect_root.as_slice()
+                );
+            }
             _ => panic!(),
         }
     }
@@ -566,7 +652,12 @@ mod test {
             let idx_outputs: ThinVec<GateIdx<u64>> = outputs.iter().map(|i: &usize| usize_to_idx(*i)).collect();
             let q = 11u64;
 
-            let circuit = Circuit::with(q, Arena::from_iter(gates.iter().cloned()), idx_inputs, idx_outputs);
+            let circuit = Circuit::with(
+                q,
+                Arena::from_iter(gates.iter().cloned()),
+                idx_inputs,
+                idx_outputs
+            ).expect("to have non-zero modulus");
 
             let new_circuit = reuse_driven_reassociate(&circuit).expect("reassociation to finalise without errors");
             assert_eq!(

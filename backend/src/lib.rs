@@ -1,3 +1,4 @@
+use common::NonZeroModulusResult;
 use ir::{Supported, circuit::Circuit};
 use thin_vec::ThinVec;
 
@@ -23,16 +24,12 @@ pub trait Backend<S: Supported> {
     fn mul(&mut self, lhs: &Self::Elem, rhs: &Self::Elem) -> Self::Elem;
     fn input(&mut self, c: S) -> Self::Elem;
     fn constant(&mut self, c: S) -> Self::Elem;
-    fn eval(
-        &mut self,
-        circuit: &Circuit<S>,
-        with: &[S],
-    ) -> BackendResult<ThinVec<Self::Elem>>;
+    fn eval(&mut self, circuit: &Circuit<S>, with: &[S]) -> BackendResult<ThinVec<Self::Elem>>;
     fn eval_outputs(
         &mut self,
         circuit: &Circuit<S>,
         with: &[S],
     ) -> BackendResult<ThinVec<Self::Elem>>;
-    fn set_plain_text_modulus(&mut self, q: S);
+    fn set_plain_text_modulus(&mut self, q: S) -> NonZeroModulusResult<()>;
     fn get_noise_mul(&mut self) -> &mut impl Noise;
 }

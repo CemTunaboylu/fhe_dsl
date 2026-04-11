@@ -1,4 +1,4 @@
-use common::Supported;
+use common::{NonZeroModulusResult, Supported, validate_non_zero};
 
 use crate::{
     compilation_mode::CompilationMode,
@@ -50,22 +50,28 @@ impl<T: Supported> ContextHandle<T> {
 
 #[derive(Clone, Debug)]
 pub struct Context<T: Supported> {
-    pub(crate) plain_text_modulus: T,
+    plain_text_modulus: T,
     pub(crate) mode: CompilationMode,
     pub(crate) arena: Arena<Expr<T>>,
     pub(crate) interner: Interner<Expr<T>>,
 }
 
 impl<T: Supported> Context<T> {
-    pub(crate) fn new(q: T, mode: CompilationMode) -> Self {
+    pub(crate) fn new(q: T, mode: CompilationMode) -> NonZeroModulusResult<Self> {
+        validate_non_zero(q)?;
         let arena = Arena::new();
         let interner = Interner::new();
-        Self {
+        let s = Self {
             plain_text_modulus: q,
             mode,
             arena,
             interner,
-        }
+        };
+        Ok(s)
+    }
+
+    pub(crate) fn get_plain_text_modulus(&self) -> T {
+        self.plain_text_modulus
     }
     pub(crate) fn create_set_of_all_indices(&self) -> BitSet {
         let mut set = BitSet::<u32>::new();

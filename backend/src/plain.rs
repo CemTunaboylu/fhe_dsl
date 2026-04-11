@@ -1,6 +1,6 @@
 use thin_vec::{ThinVec, thin_vec};
 
-use common::{default_non_zero, idx_to_usize};
+use common::{NonZeroModulusResult, default_non_zero, idx_to_usize, validate_non_zero};
 use ir::{Supported, circuit::Circuit, gate::Gate};
 use op::BinOp;
 
@@ -47,7 +47,7 @@ impl<T: Supported> Backend<T> for PlainModQBackend<T> {
     // TODO: Introduce a cache to avoid evaluating the same circuit twice.
     fn eval(&mut self, circuit: &Circuit<T>, with: &[T]) -> BackendResult<ThinVec<Self::Elem>> {
         validate_same_length(circuit, with)?;
-        self.plain_text_modulus = circuit.plain_text_modulus;
+        self.plain_text_modulus = circuit.get_plain_text_modulus();
         let mut results: ThinVec<Self::Elem> = thin_vec![T::default(); circuit.gates().len()];
 
         // One-to-one mapping between gate and elements, thus the same indices.
@@ -83,8 +83,10 @@ impl<T: Supported> Backend<T> for PlainModQBackend<T> {
     ) -> BackendResult<ThinVec<Self::Elem>> {
         eval_with_iterative_traversal::<Self::Elem, Noiseless, T, Self>(circuit, self, with)
     }
-    fn set_plain_text_modulus(&mut self, q: T) {
+    fn set_plain_text_modulus(&mut self, q: T) -> NonZeroModulusResult<()> {
+        validate_non_zero(q)?;
         self.plain_text_modulus = q;
+        Ok(())
     }
     fn get_noise_mul(&mut self) -> &mut impl Noise {
         &mut self.noise
@@ -138,7 +140,8 @@ mod test {
             Arena::from_iter(gates.iter().map(Clone::clone)),
             inputs,
             outputs,
-        );
+        )
+        .expect("to have non-zero modulus");
 
         let mut plain_mod_q = PlainModQBackend::new();
         let error = plain_mod_q

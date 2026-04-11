@@ -96,6 +96,7 @@ pub fn depth_analysis_of<T: Supported>(circuit: &Circuit<T>) -> DepthAnalysis {
 mod tests {
     use super::*;
 
+    use common::default_non_zero;
     use la_arena::{Arena, Idx};
 
     fn into_gate_idx<T: Supported>(i: u32) -> GateIdx<T> {
@@ -119,7 +120,8 @@ mod tests {
             Arena::from_iter(gates.iter().map(Clone::clone)),
             inputs,
             outputs,
-        );
+        )
+        .expect("to have non-zero modulus");
 
         let depth_analysis = depth_analysis_of(&circuit);
         assert_eq!(thin_vec![2], depth_analysis.gate);
@@ -146,7 +148,8 @@ mod tests {
             Arena::from_iter(gates.iter().map(Clone::clone)),
             inputs,
             outputs,
-        );
+        )
+        .expect("to have non-zero modulus");
 
         let depth_analysis = depth_analysis_of(&circuit);
         assert_eq!(thin_vec![2, 3, 3], depth_analysis.gate);
@@ -162,13 +165,14 @@ mod tests {
         let gates: ThinVec<Gate<T>> = thin_vec![Gate::Input(0)];
         let inputs = thin_vec![into_gate_idx::<T>(0)];
         let outputs = thin_vec![into_gate_idx::<T>(0)];
-        let q = T::default();
+        let q = default_non_zero();
         let circuit = Circuit::with(
             q,
             Arena::from_iter(gates.iter().map(Clone::clone)),
             inputs,
             outputs,
-        );
+        )
+        .expect("to have non-zero modulus");
         let _ = depth_analysis_of(&circuit);
     }
 

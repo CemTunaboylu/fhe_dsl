@@ -1,11 +1,10 @@
 use enum_iterator::all;
 use ir::{
-    Supported,
     circuit::Circuit,
     gate::{Gate, GateIdx},
 };
 
-use common::usize_to_idx;
+use common::{Supported, usize_to_idx};
 
 use fxhash::{FxBuildHasher, FxHashMap};
 use la_arena::Arena;
@@ -109,7 +108,7 @@ impl<T: Supported> CircuitCompiler<T> {
         })
     }
     pub fn with(context_handle: ContextHandle<T>) -> Self {
-        let q = context_handle.0.borrow().plain_text_modulus;
+        let q = context_handle.0.borrow().get_plain_text_modulus();
         let expr_idx_to_gate_idx = FxHashMap::with_hasher(FxBuildHasher::default());
         Self {
             plain_text_modulus: q,
@@ -244,14 +243,13 @@ impl<T: Supported> CircuitCompiler<T> {
             self.outputs.push(*current_output_gate_idx);
         }
 
-        dbg!(&self);
-
         Ok(Circuit::with(
             self.plain_text_modulus,
             self.gates,
             self.inputs,
             self.outputs,
-        ))
+        )
+        .expect("compilation to have a non-zero modulus within"))
     }
 }
 
@@ -271,15 +269,15 @@ mod tests {
     use super::*;
 
     fn test_ctx_handle() -> ContextHandle<u64> {
-        new_strict_context(7u64)
+        new_strict_context(7u64).expect("modulus to be non-zero")
     }
 
     fn test_loose_ctx_handle() -> ContextHandle<u64> {
-        new_loose_context(5u64)
+        new_loose_context(5u64).expect("modulus to be non-zero")
     }
 
     fn test_folding_ctx_handle() -> ContextHandle<u64> {
-        new_folding_strict_context(11u64)
+        new_folding_strict_context(11u64).expect("modulus to be non-zero")
     }
 
     #[test]
@@ -290,7 +288,7 @@ mod tests {
         let constant_2 = ctx_handle.constant(value);
         let out = constant_1 + constant_2;
 
-        let expected = value * 2 % ctx_handle.0.borrow().plain_text_modulus;
+        let expected = value * 2 % ctx_handle.0.borrow().get_plain_text_modulus();
 
         // (Add, lhs_constant, rhs_constant) -> will fold to Const(lhs_constant + rhs_constant)
         let expected_length = 1;
@@ -333,7 +331,7 @@ mod tests {
         let constant_2 = ctx_handle.constant(value);
         let out = constant_1 + constant_2;
 
-        let expected = value * 2 % ctx_handle.0.borrow().plain_text_modulus;
+        let expected = value * 2 % ctx_handle.0.borrow().get_plain_text_modulus();
 
         // (Add, lhs_constant, rhs_constant) -> will fold to Const(lhs_constant + rhs_constant)
         let expected_length = 1;
