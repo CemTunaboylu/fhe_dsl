@@ -1,11 +1,7 @@
 use thin_vec::{ThinVec, thin_vec};
 
-use common::idx_to_usize;
-use ir::{
-    Supported,
-    circuit::Circuit,
-    gate::Gate,
-};
+use common::{default_non_zero, idx_to_usize};
+use ir::{Supported, circuit::Circuit, gate::Gate};
 use op::BinOp;
 
 use crate::{
@@ -24,7 +20,7 @@ pub struct PlainModQBackend<T: Supported> {
 impl<T: Supported> PlainModQBackend<T> {
     pub fn new() -> Self {
         Self {
-            plain_text_modulus: T::default(),
+            plain_text_modulus: default_non_zero(),
             noise: Noiseless {},
         }
     }
@@ -34,13 +30,13 @@ impl<T: Supported> Backend<T> for PlainModQBackend<T> {
     type Elem = T;
 
     fn add(&mut self, lhs: &Self::Elem, rhs: &Self::Elem) -> Self::Elem {
-        self.constant(*lhs + *rhs)
+        self.constant(lhs.wrapping_add(rhs))
     }
     fn sub(&mut self, lhs: &Self::Elem, rhs: &Self::Elem) -> Self::Elem {
-        self.constant(*lhs - *rhs)
+        self.constant(lhs.wrapping_sub(rhs))
     }
     fn mul(&mut self, lhs: &Self::Elem, rhs: &Self::Elem) -> Self::Elem {
-        self.constant(*lhs * *rhs)
+        self.constant(lhs.wrapping_mul(rhs))
     }
     fn input(&mut self, c: T) -> Self::Elem {
         c % self.plain_text_modulus
@@ -49,15 +45,10 @@ impl<T: Supported> Backend<T> for PlainModQBackend<T> {
         c % self.plain_text_modulus
     }
     // TODO: Introduce a cache to avoid evaluating the same circuit twice.
-    fn eval(
-        &mut self,
-        circuit: &Circuit<T>,
-        with: &[T],
-    ) -> BackendResult<ThinVec<Self::Elem>> {
+    fn eval(&mut self, circuit: &Circuit<T>, with: &[T]) -> BackendResult<ThinVec<Self::Elem>> {
         validate_same_length(circuit, with)?;
         self.plain_text_modulus = circuit.plain_text_modulus;
-        let mut results: ThinVec<Self::Elem> =
-            thin_vec![T::default(); circuit.gates().len()];
+        let mut results: ThinVec<Self::Elem> = thin_vec![T::default(); circuit.gates().len()];
 
         // One-to-one mapping between gate and elements, thus the same indices.
         for (ix, (_, gate)) in circuit.gates().iter().enumerate() {

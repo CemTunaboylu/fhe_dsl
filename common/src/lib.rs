@@ -2,12 +2,22 @@ use la_arena::{Idx, RawIdx};
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use num_traits::{PrimInt, WrappingAdd, WrappingMul, WrappingSub};
+use num_traits::{One, PrimInt, WrappingAdd, WrappingMul, WrappingSub, Zero};
 
 /// Marker trait for all integer types that can be used as plaintext values in the FHE DSL.
 /// Requires arithmetic operations, plus the standard derive-friendly traits needed for hashing, ordering, and copying through arenas.
 pub trait Supported:
-    Copy + Clone + Debug + Default + Hash + PrimInt + WrappingAdd + WrappingSub + WrappingMul
+    Copy
+    + Clone
+    + Debug
+    + Default
+    + Hash
+    + PrimInt
+    + WrappingAdd
+    + WrappingSub
+    + WrappingMul
+    + One
+    + Zero
 {
 }
 
@@ -18,6 +28,11 @@ macro_rules! impl_supported {
 }
 
 impl_supported!(i8, i16, i32, i64, u8, u16, u32, u64);
+
+pub fn default_non_zero<T: Supported>() -> T {
+    // Avoid division by 0.
+    T::default().wrapping_add(&T::one())
+}
 
 pub fn idx_to_u32<I>(some_idx: Idx<I>) -> u32 {
     some_idx.into_raw().into_u32()

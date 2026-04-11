@@ -5,7 +5,7 @@ use crate::{
     iterative::eval_with_iterative_traversal,
     noise::{MockNoise, Noise},
 };
-use common::idx_to_usize;
+use common::{default_non_zero, idx_to_usize};
 use ir::{Supported, circuit::Circuit, gate::Gate};
 use op::BinOp;
 use thin_vec::{ThinVec, thin_vec};
@@ -21,7 +21,7 @@ pub struct MockFHEBackend<T: Supported, N: Noise> {
 impl<T: Supported, N: Noise> MockFHEBackend<T, N> {
     pub fn new(noise_budget: usize) -> Self {
         Self {
-            plain_text_modulus: T::default(),
+            plain_text_modulus: default_non_zero(),
             noise: Noise::new(noise_budget),
         }
     }
@@ -39,13 +39,13 @@ impl<T: Supported, N: Noise> Backend<T> for MockFHEBackend<T, N> {
     type Elem = MockFHEElement<T>;
 
     fn add(&mut self, lhs: &Self::Elem, rhs: &Self::Elem) -> Self::Elem {
-        let mut element = self.constant(lhs.value + rhs.value);
+        let mut element = self.constant(lhs.value.wrapping_add(&rhs.value));
         element.depth = max(lhs.depth, rhs.depth);
         element.noise = max(lhs.noise, rhs.noise) + ADD_COST;
         element
     }
     fn sub(&mut self, lhs: &Self::Elem, rhs: &Self::Elem) -> Self::Elem {
-        let mut element = self.constant(lhs.value - rhs.value);
+        let mut element = self.constant(lhs.value.wrapping_sub(&rhs.value));
         element.depth = max(lhs.depth, rhs.depth);
         element.noise = max(lhs.noise, rhs.noise) + ADD_COST;
         element
@@ -55,7 +55,7 @@ impl<T: Supported, N: Noise> Backend<T> for MockFHEBackend<T, N> {
     // folded thus we don't consider it's depth here. We consider other_than_const * op is to have
     // the same depth and noise as other_than_const * other_than_const.
     fn mul(&mut self, lhs: &Self::Elem, rhs: &Self::Elem) -> Self::Elem {
-        let mut element = self.constant(lhs.value * rhs.value);
+        let mut element = self.constant(lhs.value.wrapping_mul(&rhs.value));
         element.depth = max(lhs.depth, rhs.depth) + 1;
         // NOTE: Noise during multiplication grows exponentially, thus the multiplication.
         element.noise = lhs.noise * rhs.noise + MUL_COST;
@@ -77,11 +77,7 @@ impl<T: Supported, N: Noise> Backend<T> for MockFHEBackend<T, N> {
     // TODO: Introduce a cache to avoid evaluating the same circuit twice.
     // NOTE: eval currently acts as the inputs are given plaintext, thus the mock fhe backend
     // pseudo-encrypts them with elements having a noise.
-    fn eval(
-        &mut self,
-        circuit: &Circuit<T>,
-        with: &[T],
-    ) -> BackendResult<ThinVec<Self::Elem>> {
+    fn eval(&mut self, circuit: &Circuit<T>, with: &[T]) -> BackendResult<ThinVec<Self::Elem>> {
         validate_same_length(circuit, with)?;
         self.plain_text_modulus = circuit.plain_text_modulus;
         // NOTE: we restart noise because certain outputs can be below the budget but if we
