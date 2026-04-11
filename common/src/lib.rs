@@ -1,26 +1,13 @@
 use la_arena::{Idx, RawIdx};
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::{Add, Mul, Rem, Sub};
+
+use num_traits::{PrimInt, WrappingAdd, WrappingMul, WrappingSub};
 
 /// Marker trait for all integer types that can be used as plaintext values in the FHE DSL.
-///
-/// Requires arithmetic operations with self-output (no implicit widening), plus the standard
-/// derive-friendly traits needed for hashing, ordering, and copying through arenas.
+/// Requires arithmetic operations, plus the standard derive-friendly traits needed for hashing, ordering, and copying through arenas.
 pub trait Supported:
-    Copy
-    + Clone
-    + Debug
-    + Default
-    + PartialEq
-    + Eq
-    + Hash
-    + Ord
-    + PartialOrd
-    + Add<Output = Self>
-    + Sub<Output = Self>
-    + Mul<Output = Self>
-    + Rem<Output = Self>
+    Copy + Clone + Debug + Default + Hash + PrimInt + WrappingAdd + WrappingSub + WrappingMul
 {
 }
 
